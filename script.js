@@ -13,6 +13,9 @@ let drag = null;
 let animationTimer = null;
 let isAnimating = false;
 
+// Add tooltip div
+const tooltip = d3.select('body').append('div').attr('class', 'tooltip');
+
 // Initialize the visualization
 async function init() {
     // Create the SVG element
@@ -169,22 +172,17 @@ function dragged(event) {
 
 // Update earthquake positions when the globe rotates
 function updateEarthquakePositions() {
-    // Update earthquake positions
+    const [lambda, phi] = projection.rotate();
     d3.selectAll('.earthquake').each(function(d) {
-        if (!d) return; // Skip if no data
-        
         const point = d3.select(this);
-        
-        // Calculate if the point is visible
-        const coordinate = projection([d.longitude, d.latitude]);
-        
-        // If we have coordinates, the point is potentially visible on the front half
-        if (coordinate) {
-            point.attr('cx', coordinate[0])
-                 .attr('cy', coordinate[1])
+        const coord = projection([d.longitude, d.latitude]);
+        // Determine if on front hemisphere
+        const visible = d3.geoDistance([d.longitude, d.latitude], [-lambda, -phi]) < Math.PI / 2;
+        if (coord && visible) {
+            point.attr('cx', coord[0])
+                 .attr('cy', coord[1])
                  .attr('visibility', 'visible');
         } else {
-            // If projection returns null, point is on the back half
             point.attr('visibility', 'hidden');
         }
     });
@@ -368,27 +366,18 @@ function getColorByMagnitude(magnitude) {
 
 // Show earthquake information on hover
 function showEarthquakeInfo(event, d) {
-    const infoPanel = d3.select('#earthquake-info');
-    
-    // Format the information
-    let info = `
-        <p><strong>Date:</strong> ${d.year}/${d.month || '?'}/${d.day || '?'}</p>
-        <p><strong>Location:</strong> ${d.location}</p>
-        <p><strong>Coordinates:</strong> ${d.latitude.toFixed(2)}, ${d.longitude.toFixed(2)}</p>
-        <p><strong>Magnitude:</strong> ${d.magnitude ? d.magnitude.toFixed(1) : 'Unknown'}</p>
+    const info = `
+        <strong>Date:</strong> ${d.year}/${d.month || '?'} / ${d.day || '?'}<br/>
+        <strong>Location:</strong> ${d.location}<br/>
+        <strong>Coordinates:</strong> ${d.latitude.toFixed(2)}, ${d.longitude.toFixed(2)}<br/>
+        <strong>Magnitude:</strong> ${d.magnitude ? d.magnitude.toFixed(1) : 'Unknown'}<br/>
+        ${d.deaths > 0 ? `<strong>Deaths:</strong> ${d.deaths}<br/>` : ''}
+        ${d.depth > 0 ? `<strong>Depth:</strong> ${d.depth} km<br/>` : ''}
     `;
-    
-    if (d.deaths > 0) {
-        info += `<p><strong>Deaths:</strong> ${d.deaths}</p>`;
-    }
-    
-    if (d.depth > 0) {
-        info += `<p><strong>Depth:</strong> ${d.depth} km</p>`;
-    }
-    
-    infoPanel.html(info);
-    
-    // Highlight the earthquake
+    tooltip.html(info)
+        .style('left', (event.pageX + 10) + 'px')
+        .style('top', (event.pageY + 10) + 'px')
+        .style('opacity', 1);
     d3.select(event.currentTarget)
         .attr('stroke-width', '2px')
         .attr('fill-opacity', 1);
@@ -396,10 +385,7 @@ function showEarthquakeInfo(event, d) {
 
 // Hide earthquake information on mouseout
 function hideEarthquakeInfo(event) {
-    // Reset the info panel
-    d3.select('#earthquake-info').html('<p>Hover over an earthquake to see details</p>');
-    
-    // Reset highlighting
+    tooltip.style('opacity', 0);
     d3.select(event.currentTarget)
         .attr('stroke-width', '0.5px')
         .attr('fill-opacity', 0.7);
@@ -432,4 +418,4 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
-}); 
+});
