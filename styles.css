@@ -270,3 +270,90 @@ h1 {
   max-width: 200px;
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
+
+/* Dual slider container styles */
+.dual-slider-container {
+    position: relative;
+    width: 100%;
+    height: 40px;
+    display: flex;
+    align-items: center;
+}
+
+/* Style both sliders to overlap */
+.range-slider {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    background: none;
+    z-index: 1;
+}
+
+.range-slider::-webkit-slider-thumb,
+.range-slider::-moz-range-thumb {
+    pointer-events: auto;
+    z-index: 3;
+}
+
+/* Track for the selected range */
+.slider-track {
+    position: absolute;
+    height: 10px;
+    width: 100%;
+    background: #d3d3d3;
+    border-radius: 5px;
+    z-index: 0;
+}
+
+/* Highlighted range */
+.slider-range {
+    position: absolute;
+    height: 14px;
+    margin-top: -2px;
+    border-radius: 7px;
+    background: linear-gradient(90deg, #3498db 0%, #e67e22 100%);
+    z-index: 1;
+}
+
+/* Ensure thumbs are above the track */
+.range-slider:focus::-webkit-slider-thumb {
+    box-shadow: 0 0 0 3px rgba(52,152,219,0.3);
+}
+.range-slider:focus::-moz-range-thumb {
+    box-shadow: 0 0 0 3px rgba(52,152,219,0.3);
+}
+
+/* Hide default appearance for better overlay */
+.range-slider::-webkit-slider-runnable-track {
+    background: transparent;
+}
+.range-slider::-moz-range-track {
+    background: transparent;
+}
+
+/* Custom arrow thumbs for dual slider */
+#start-year-slider::-webkit-slider-thumb,
+#end-year-slider::-webkit-slider-thumb {
+    margin-top: -2px;
+}
+#start-year-slider::-moz-range-thumb,
+#end-year-slider::-moz-range-thumb {
+    margin-top: -2px;
+}
+
+#start-year-slider {
+    position: relative;
+    z-index: 3;
+}
+#end-year-slider {
+    position: relative;
+    z-index: 2;
+}
+
+/* Responsive for mobile */
+@media (max-width: 768px) {
+    .dual-slider-container {
+        height: 50px;
+    }
+}

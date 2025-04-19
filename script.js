@@ -3,7 +3,8 @@ let width = 800;
 let height = 500;
 let earthquakeData = [];
 let years = [];
-let currentYear = null;
+let startYear = null;
+let endYear = null;
 let globe = null;
 let projection = null;
 let path = null;
@@ -12,6 +13,9 @@ let rotate = [0, 0, 0];
 let drag = null;
 let animationTimer = null;
 let isAnimating = false;
+
+// Global noUiSlider reference
+let yearSlider = null;
 
 // Add tooltip div
 const tooltip = d3.select('body').append('div').attr('class', 'tooltip');
@@ -99,9 +103,10 @@ async function loadEarthquakeData() {
         // Get unique years for the selector
         years = [...new Set(earthquakeData.map(d => d.year))].sort();
         
-        // Set default year to the first year
+        // Set default year range to the first year
         if (years.length > 0) {
-            currentYear = years[0];
+            startYear = years[0];
+            endYear = years[0]; // Initially, the range is just the first year
         }
     } catch (error) {
         console.error('Error loading earthquake data:', error);
@@ -190,70 +195,59 @@ function updateEarthquakePositions() {
 
 // Setup year selector
 function setupYearSelector() {
-    // Get min and max years from the data
     const minYear = Math.min(...years);
     const maxYear = Math.max(...years);
-    
-    // Get the slider element
-    const yearSlider = document.getElementById('year-slider');
-    const currentYearDisplay = document.getElementById('current-year');
-    const sliderMin = document.querySelector('.slider-min');
-    const sliderMax = document.querySelector('.slider-max');
-    
-    // Configure the slider
-    yearSlider.min = minYear;
-    yearSlider.max = maxYear;
-    yearSlider.value = currentYear;
-    
-    // Update the labels
-    sliderMin.textContent = minYear;
-    sliderMax.textContent = maxYear;
-    currentYearDisplay.textContent = currentYear;
-    
-    // Add event listener for the slider
-    yearSlider.addEventListener('input', function() {
-        // Update the current year display while dragging
-        currentYearDisplay.textContent = this.value;
+    const startYearDisplay = document.getElementById('start-year');
+    const endYearDisplay = document.getElementById('end-year');
+    const sliderContainer = document.getElementById('year-slider-container');
+    sliderContainer.innerHTML = '';
+    noUiSlider.create(sliderContainer, {
+        start: [startYear, endYear],
+        connect: true,
+        range: { min: minYear, max: maxYear },
+        step: 1,
+        tooltips: [true, true],
+        format: { to: v => Math.round(v), from: v => +v }
     });
-    
-    // Add event listener for when slider value is changed (on release)
-    yearSlider.addEventListener('change', function() {
-        // Stop any ongoing animation when manually changing the year
-        stopAnimation();
-        
-        currentYear = +this.value;
+    const slider = sliderContainer.noUiSlider;
+    yearSlider = slider;
+    slider.on('update', (values) => {
+        startYear = +values[0];
+        endYear = +values[1];
+        startYearDisplay.textContent = startYear;
+        endYearDisplay.textContent = endYear;
+    });
+    slider.on('set', () => {
         updateEarthquakes();
     });
-    
-    // Add play/pause button to container
+    // Play/Pause and speed controls appended below
     const controlsDiv = document.querySelector('.year-control');
-    
-    // Add controls wrapper
-    const controlsWrapper = document.createElement('div');
-    controlsWrapper.className = 'controls-wrapper';
-    
-    // Add play button
-    const playButton = document.createElement('button');
-    playButton.id = 'play-button';
-    playButton.innerHTML = '▶ Play';
-    playButton.className = 'control-button';
-    playButton.addEventListener('click', toggleAnimation);
-    controlsWrapper.appendChild(playButton);
-    
-    // Add animation speed control
-    const speedControl = document.createElement('div');
-    speedControl.className = 'speed-control';
-    speedControl.innerHTML = `
-        <label for="speed-slider">Speed:</label>
-        <input type="range" id="speed-slider" min="250" max="2000" value="1000" class="speed-slider">
-        <div class="speed-labels">
-            <span>Slow</span>
-            <span>Fast</span>
-        </div>
-    `;
-    controlsWrapper.appendChild(speedControl);
-    
-    controlsDiv.appendChild(controlsWrapper);
+    let controlsWrapper = controlsDiv.querySelector('.controls-wrapper');
+    if (!controlsWrapper) {
+        controlsWrapper = document.createElement('div');
+        controlsWrapper.className = 'controls-wrapper';
+        controlsDiv.appendChild(controlsWrapper);
+    }
+    let playButton = document.getElementById('play-button');
+    if (!playButton) {
+        playButton = document.createElement('button');
+        playButton.id = 'play-button';
+        playButton.innerHTML = '▶ Play';
+        playButton.className = 'control-button';
+        playButton.addEventListener('click', toggleAnimation);
+        controlsWrapper.appendChild(playButton);
+    }
+    let speedControl = controlsDiv.querySelector('.speed-control');
+    if (!speedControl) {
+        speedControl = document.createElement('div');
+        speedControl.className = 'speed-control';
+        speedControl.innerHTML = `
+            <label for="speed-slider">Speed:</label>
+            <input type="range" id="speed-slider" min="250" max="2000" value="1000" class="speed-slider">
+            <div class="speed-labels"><span>Slow</span><span>Fast</span></div>
+        `;
+        controlsWrapper.appendChild(speedControl);
+    }
 }
 
 // Toggle animation play/pause
@@ -269,50 +263,55 @@ function toggleAnimation() {
     }
 }
 
-// Start animation through years
+// Play animation for the year range using noUiSlider
 function startAnimation() {
     if (isAnimating) return;
-    
     isAnimating = true;
     
-    const yearSlider = document.getElementById('year-slider');
-    const currentYearDisplay = document.getElementById('current-year');
     const speedSlider = document.getElementById('speed-slider');
-    const maxYear = +yearSlider.max;
+    const playButton = document.getElementById('play-button');
+    const maxYear = Math.max(...years);
     
-    // Get animation speed (invert for intuitive control - lower value = faster)
-    const animationSpeed = 2250 - speedSlider.value;
+    playButton.innerHTML = '⏸ Pause';
     
     animationTimer = setInterval(() => {
-        // Increment year
-        currentYear++;
+        if (!yearSlider) return;
         
-        // If we reached the end, loop back to the beginning
-        if (currentYear > maxYear) {
-            currentYear = +yearSlider.min;
+        const values = yearSlider.get();
+        let cs = +values[0];
+        let ce = +values[1];
+        
+        if (ce < maxYear) {
+            // Increment end year
+            ce++;
+            yearSlider.set([cs, ce]);
+        } else if (cs < maxYear) {
+            // If end year reached max, increment both
+            cs++;
+            ce = cs;
+            yearSlider.set([cs, ce]);
+        } else {
+            // Reset to beginning when both reach max
+            cs = Math.min(...years);
+            ce = cs;
+            yearSlider.set([cs, ce]);
         }
         
-        // Update slider and display
-        yearSlider.value = currentYear;
-        currentYearDisplay.textContent = currentYear;
-        
-        // Update visualization
-        updateEarthquakes();
-    }, animationSpeed);
+    }, 2250 - speedSlider.value); // Speed calculation
 }
 
-// Stop animation
 function stopAnimation() {
     if (!isAnimating) return;
-    
     clearInterval(animationTimer);
     isAnimating = false;
+    const playButton = document.getElementById('play-button');
+    if (playButton) playButton.innerHTML = '▶ Play';
 }
 
-// Update earthquakes based on the selected year
+// Update earthquakes based on the selected year range
 function updateEarthquakes() {
-    // Filter earthquakes for the selected year
-    const filteredData = earthquakeData.filter(d => d.year === currentYear);
+    // Filter earthquakes for the selected year range
+    const filteredData = earthquakeData.filter(d => d.year >= startYear && d.year <= endYear);
     
     // Remove existing earthquakes
     globe.selectAll('.earthquake').remove();
@@ -341,13 +340,12 @@ function updateEarthquakes() {
     updateEarthquakePositions();
     
     // Log count for debugging
-    console.log(`Displaying ${filteredData.length} earthquakes for year ${currentYear}`);
+    console.log(`Displaying ${filteredData.length} earthquakes for year range ${startYear}-${endYear}`);
 }
 
 // Get the radius of an earthquake based on its magnitude
 function getRadiusByMagnitude(magnitude) {
     if (!magnitude || isNaN(magnitude)) return 3;
-    
     if (magnitude > 8) return 8;
     if (magnitude > 7) return 6;
     if (magnitude > 6) return 4;

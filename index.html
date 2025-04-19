@@ -9,6 +9,8 @@
     <script src="https://d3js.org/d3-geo-projection.v3.min.js"></script>
     <script src="https://d3js.org/topojson.v3.min.js"></script>
     <link rel="stylesheet" href="styles.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/nouislider@15.5.0/dist/nouislider.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/nouislider@15.5.0/dist/nouislider.min.js"></script>
 </head>
 <body>
     <div class="container">
@@ -16,14 +18,11 @@
         <div class="controls">
             <div class="year-control">
                 <div class="year-display">
-                    <label for="year-slider">Year: </label>
-                    <span id="current-year">1900</span>
+                    <label>Year Range: </label>
+                    <span id="start-year">1900</span> - <span id="end-year">2000</span>
                 </div>
-                <input type="range" id="year-slider" min="1900" max="2000" value="1900" class="slider">
-                <div class="slider-labels">
-                    <span class="slider-min">1900</span>
-                    <span class="slider-max">2000</span>
-                </div>
+                <div id="year-slider-container"></div>
+                <!-- Play button and speed control added by script.js -->
             </div>
             <div class="legend">
                 <h3>Magnitude</h3>
@@ -55,4 +54,4 @@
     </div>
     <script src="script.js"></script>
 </body>
-</html> 
+</html>
