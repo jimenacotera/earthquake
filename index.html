@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Global Earthquakes Visualization</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://d3js.org/d3-geo.v2.min.js"></script>
+    <script src="https://d3js.org/d3-geo-projection.v3.min.js"></script>
+    <script src="https://d3js.org/topojson.v3.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>Global Earthquakes Visualization</h1>
+        <div class="controls">
+            <div class="year-control">
+                <div class="year-display">
+                    <label for="year-slider">Year: </label>
+                    <span id="current-year">1900</span>
+                </div>
+                <input type="range" id="year-slider" min="1900" max="2000" value="1900" class="slider">
+                <div class="slider-labels">
+                    <span class="slider-min">1900</span>
+                    <span class="slider-max">2000</span>
+                </div>
+            </div>
+            <div class="legend">
+                <h3>Magnitude</h3>
+                <div class="legend-item">
+                    <span class="dot small"></span>
+                    <span>Small (≤ 6.0)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="dot medium"></span>
+                    <span>Medium (6.1 - 7.0)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="dot large"></span>
+                    <span>Large (7.1 - 8.0)</span>
+                </div>
+                <div class="legend-item">
+                    <span class="dot xlarge"></span>
+                    <span>Major (> 8.0)</span>
+                </div>
+            </div>
+        </div>
+        <div id="visualization"></div>
+        <div class="info-panel">
+            <h3>Earthquake Information</h3>
+            <div id="earthquake-info">
+                <p>Hover over an earthquake to see details</p>
+            </div>
+        </div>
+    </div>
+    <script src="script.js"></script>
+</body>
+</html> 
