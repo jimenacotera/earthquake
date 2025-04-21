@@ -45,6 +45,12 @@ function getColorByMagnitude(magnitude) {
     return '#4CAF50'; // Green
 }
 
+// Bar‑chart globals
+let dataByYear = [];
+let barSvg, barChart, barWidth, barHeight;
+const barMargin = { top: 20, right: 30, bottom: 80, left: 80 };
+let xScale, yScale, xAxis, yAxis;
+
 // Initialize the visualization
 async function init() {
     // Create the SVG element
@@ -95,8 +101,11 @@ async function init() {
 
         // Setup zoom behavior for scaling
         setupGlobeZoom();
-
-        // Add initial earthquakes
+        
+        // initialize bar chart
+        initBarChart();
+        
+        // add initial quakes
         updateEarthquakes();
     } catch (error) {
         console.error('Error loading data:', error);
@@ -138,9 +147,18 @@ async function loadEarthquakeData() {
             startYear = years[0];
             endYear = years[0]; // Initially, the range is just the first year
         }
+        aggregateDataByYear();
     } catch (error) {
         console.error('Error loading earthquake data:', error);
     }
+}
+
+// aggregate deaths by year
+function aggregateDataByYear() {
+    dataByYear = Array.from(
+        d3.rollup(earthquakeData, v => d3.sum(v, d => d.deaths), d => d.year),
+        ([year, earthquakeDeaths]) => ({ year, earthquakeDeaths })
+    );
 }
 
 // Draw the globe
@@ -279,6 +297,7 @@ function setupYearSelector() {
     });
     slider.on('set', () => {
         updateEarthquakes();
+        updateBarChart();
     });
     // Play/Pause and speed controls appended below
     const controlsDiv = document.querySelector('.year-control');
@@ -462,6 +481,7 @@ function updateEarthquakes() {
     
     // Log count for debugging
     console.log(`Displaying ${filteredData.length} earthquakes for year range ${startYear}-${endYear}, tsunami: ${showTsunamiOnly}, volcano: ${showVolcanoOnly}`);
+    updateBarChart();
 }
 
 // Update earthquake positions when the globe rotates or zooms
@@ -578,32 +598,128 @@ function zoomByDelta(delta) {
 document.addEventListener('DOMContentLoaded', function() {
     init();
 
-    // Handle window resize
+    // Handle window resize - consolidated into one handler
     window.addEventListener('resize', function() {
+        // Globe resize
         const container = document.getElementById('visualization');
         if (container) {
             const containerWidth = container.clientWidth;
-            // Adjust width/height based on container, respecting max initial size
-            width = Math.min(800, containerWidth); // Use initial width as max
-            height = Math.min(500, width * (500/800)); // Maintain aspect ratio
+            width = Math.min(800, containerWidth);
+            height = Math.min(500, width * (500/800));
 
-            // Update SVG dimensions
-            svg.attr('width', width).attr('height', height);
+            if (svg) {
+                svg.attr('width', width).attr('height', height);
+                projection.translate([width / 2, height / 2]);
+                
+                const currentScale = projection.scale();
+                svg.select('#globe-clip circle')
+                   .attr('cx', width / 2)
+                   .attr('cy', height / 2)
+                   .attr('r', currentScale);
 
-            // Update projection translation (center) and potentially initialScale if base size changes drastically
-            projection.translate([width / 2, height / 2]);
-            // Note: initialScale remains fixed unless explicitly recalculated based on new width/height
-            // The current zoom level (transform.k) will adapt the scale relative to initialScale
-
-            // Update clipping path center and radius based on current scale
-            const currentScale = projection.scale();
-            svg.select('#globe-clip circle')
-               .attr('cx', width / 2)
-               .attr('cy', height / 2)
-               .attr('r', currentScale); // Use current scale, not initial
-
-            // Redraw everything with new dimensions and projection settings
-            redrawGlobeElements();
+                redrawGlobeElements();
+            }
+        }
+        
+        // Bar chart resize
+        const barContainer = document.getElementById('bar-chart-container');
+        if (barContainer) {
+            // Clear the container completely before reinitializing
+            d3.select('#bar-chart-container').html('');
+            barSvg = null; // Reset barSvg reference
+            initBarChart();
+            updateBarChart();
         }
     });
 });
+
+// create SVG, scales, axes for bar chart
+function initBarChart() {
+  // Clear any existing content to prevent duplication
+  d3.select('#bar-chart-container').html('');
+  
+  const container = document.getElementById('bar-chart-container');
+  barWidth  = container.clientWidth  - barMargin.left - barMargin.right;
+  barHeight = container.clientHeight - barMargin.top  - barMargin.bottom || 300;
+  
+  barSvg = d3.select('#bar-chart-container')
+    .append('svg')
+      .attr('width',  barWidth + barMargin.left + barMargin.right)
+      .attr('height', barHeight + barMargin.top  + barMargin.bottom)
+    .append('g')
+      .attr('transform', `translate(${barMargin.left},${barMargin.top})`);
+
+  xScale = d3.scaleBand().range([0, barWidth]).padding(0.1);
+  yScale = d3.scaleLinear().range([barHeight, 0]);
+
+  xAxis = barSvg.append('g')
+    .attr('class','axis x-axis')
+    .attr('transform',`translate(0,${barHeight})`);
+
+  yAxis = barSvg.append('g')
+    .attr('class','axis y-axis');
+
+  // X-axis label - increased y distance to 60px from axis
+  barSvg.append('text')
+    .attr('class','axis-label')
+    .attr('x', barWidth/2)
+    .attr('y', barHeight + 40)
+    .attr('text-anchor','middle')
+    .text('Year');
+
+  // Y-axis label - increased distance from axis
+  barSvg.append('text')
+    .attr('class','axis-label')
+    .attr('transform','rotate(-90)')
+    .attr('x', -barHeight/2)
+    .attr('y', -55)  // Increased from -40 to -55
+    .attr('text-anchor','middle')
+    .text('Deaths');
+}
+
+// update bars on slider change or data load
+function updateBarChart() {
+  const filtered = dataByYear.filter(d => d.year>=startYear && d.year<=endYear);
+  xScale.domain(filtered.map(d=>d.year));
+  yScale.domain([0, d3.max(filtered,d=>d.earthquakeDeaths)||0]);
+
+  xAxis.transition().duration(500)
+    .call(d3.axisBottom(xScale).tickValues(
+      xScale.domain().filter((_,i) => i % Math.ceil(filtered.length/10)===0)
+    ));
+  yAxis.transition().duration(500)
+    .call(d3.axisLeft(yScale));
+
+  const bars = barSvg.selectAll('.bar')
+    .data(filtered, d=>d.year);
+
+  bars.enter().append('rect')
+      .attr('class','bar')
+      .attr('x', d=>xScale(d.year))
+      .attr('y', barHeight)
+      .attr('width', xScale.bandwidth())
+      .attr('height', 0)
+      .on('mouseover', showBarInfo) // Add tooltip handler
+      .on('mouseout', hideBarInfo)  // Add tooltip handler
+    .merge(bars)
+      .transition().duration(500)
+      .attr('x', d=>xScale(d.year))
+      .attr('y', d=>yScale(d.earthquakeDeaths))
+      .attr('width', xScale.bandwidth())
+      .attr('height', d=>barHeight - yScale(d.earthquakeDeaths));
+
+  bars.exit()
+    .transition().duration(500)
+      .attr('y', barHeight)
+      .attr('height', 0)
+    .remove();
+}
+
+// tooltip for bars
+function showBarInfo(event,d){
+  tooltip.html(`<strong>${d.year}</strong><br/>Deaths: ${d.earthquakeDeaths}`)
+    .style('left', event.pageX+10+'px')
+    .style('top',  event.pageY+10+'px')
+    .style('opacity',1);
+}
+function hideBarInfo(){ tooltip.style('opacity',0); }
