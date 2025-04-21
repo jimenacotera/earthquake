@@ -3,9 +3,9 @@ const WIDTH  = 800;
 const HEIGHT = 500;
 const INITIAL_SCALE = 250;
 const MAG_COLORS = [
-    { limit: 8, color: '#F44336', radius: 8 },   // >8  ⇒ red
-    { limit: 7, color: '#FF5722', radius: 6 },   // 7‑8 ⇒ orange
-    { limit: 6, color: '#FFC107', radius: 4 }    // 6‑7 ⇒ yellow
+    { limit: 8, color: '#F44336', radius: 8 },   // >8  -> red
+    { limit: 7, color: '#FF5722', radius: 6 },   // 7‑8 -> orange
+    { limit: 6, color: '#FFC107', radius: 4 }    // 6‑7 -> yellow
 ];
 const MAG_BINS = [
     { key: 'small',  label: '≤6.0',      color: '#4CAF50' },
@@ -44,7 +44,8 @@ const state = {
     animationTimer: null,
     slider: null,
     filters: { tsunami: false, volcano: false },
-    bar: {}
+    bar: {},
+    mapView: 'globe' // 'globe' or 'map'
 };
 
 /* ───────────────────────── Helpers ───────────────────────── */
@@ -71,37 +72,65 @@ async function init () {
     await drawGlobe();
     buildYearSlider();
     wireInteractions();
-    populateBarMetricDropdown(); // NEW: populate dropdown
+    populateBarMetricDropdown();
     initBarChart();
     updateBarChart();
-    wireTopXInput(); // NEW: wire up top X input
-    initTopBarChart(); // NEW: initialize top bar chart
-    updateTopBarChart(); // NEW: update top bar chart
+    wireTopXInput();
+    initTopBarChart();
+    updateTopBarChart();
     updateEarthquakes();
+    wireMapViewSelect();
+}
+
+function wireMapViewSelect() {
+    const select = document.getElementById('map-view-select');
+    select.value = state.mapView;
+    select.onchange = function() {
+        state.mapView = this.value;
+        d3.select('#visualization').selectAll('*').remove();
+        buildSvg();
+        drawGlobe().then(() => {
+            wireInteractions();
+            updateEarthquakes();
+        });
+    };
 }
 
 /* ───────────────────────── SVG / Projection ───────────────────────── */
 function buildSvg () {
     state.svg = d3.select('#visualization')
     .append('svg')
-    .attr('class', 'globe')
+    .attr('class', state.mapView === 'globe' ? 'globe' : 'map')
     .attr('width', state.width)
     .attr('height', state.height);
 
-    state.projection = d3.geoOrthographic()
-    .scale(INITIAL_SCALE)
-    .translate([state.width / 2, state.height / 2])
-    .clipAngle(90);
-
+    if (state.mapView === 'globe') {
+        state.projection = d3.geoOrthographic()
+            .scale(INITIAL_SCALE)
+            .translate([state.width / 2, state.height / 2])
+            .clipAngle(90);
+    } else {
+        // Mercator projection, infinite drag
+        state.projection = d3.geoEquirectangular()
+            .scale(state.width / (2 * Math.PI))
+            .translate([state.width / 2, state.height / 2])
+            .rotate([state.rotate2D?.lon || 0, state.rotate2D?.lat || 0]);
+        // Store rotation state for 2D
+        if (!state.rotate2D) state.rotate2D = { lon: 0, lat: 0 };
+    }
     state.path = d3.geoPath().projection(state.projection);
     state.globe = state.svg.append('g');
 
-    state.svg.append('defs').append('clipPath')
-    .attr('id', 'globe-clip')
-    .append('circle')
-    .attr('cx', state.width / 2)
-    .attr('cy', state.height / 2)
-    .attr('r', state.projection.scale());
+    if (state.mapView === 'globe') {
+        state.svg.append('defs').append('clipPath')
+            .attr('id', 'globe-clip')
+            .append('circle')
+            .attr('cx', state.width / 2)
+            .attr('cy', state.height / 2)
+            .attr('r', state.projection.scale());
+    } else {
+        d3.select('#globe-clip').remove();
+    }
 }
 
 /* ───────────────────────── Data ───────────────────────── */
@@ -157,14 +186,16 @@ async function drawGlobe () {
     .attr('class', 'country')
     .attr('d', state.path);
 
-    // Sphere outline
-    state.globe.append('path')
-    .datum({ type: 'Sphere' })
-    .attr('class', 'sphere')
-    .attr('fill', 'none')
-    .attr('stroke', '#000')
-    .attr('stroke-width', '1.5px')
-    .attr('d', state.path);
+    if (state.mapView === 'globe') {
+        // Sphere outline for globe only
+        state.globe.append('path')
+        .datum({ type: 'Sphere' })
+        .attr('class', 'sphere')
+        .attr('fill', 'none')
+        .attr('stroke', '#000')
+        .attr('stroke-width', '1.5px')
+        .attr('d', state.path);
+    }
 }
 
 /* ───────────────────────── Zoom Buttons ───────────────────────── */
@@ -176,7 +207,7 @@ function applyZoom (delta) {
 function addZoomButtons () {
     const wrap = d3.select('#visualization').append('div').attr('class', 'zoom-controls');
 
-    [['+', 'zoom-in', 0.2], ['−', 'zoom-out', -0.2]].forEach(([txt, id, delta], idx) => {
+    [['+', 'zoom-in', 0.2], ['-', 'zoom-out', -0.2]].forEach(([txt, id, delta], idx) => {
         wrap.append('button').attr('class', 'zoom-button').attr('id', id).text(txt)
         .attr('aria-label', txt === '+' ? 'Zoom in' : 'Zoom out')
         .on('click', () => applyZoom(delta));
@@ -252,32 +283,69 @@ function addYearControls () {
 
 /* ───────────────────────── Interactions (Drag, Zoom) ───────────────────────── */
 function wireInteractions () {
-    // Drag → rotate
-    state.svg.call(
-    d3.drag()
-        .on('start', stopAnimation)
-        .on('drag', ({ dx, dy }) => {
-        const [λ, φ, γ] = state.projection.rotate();
-        state.rotate = [λ + dx * 0.25, Math.max(-90, Math.min(90, φ - dy * 0.25)), γ];
-        state.projection.rotate(state.rotate);
-        redrawGlobe();
-        })
-    ).style('cursor', 'grab');
+    if (state.mapView === 'globe') {
+        // Drag -> rotate
+        state.svg.call(
+        d3.drag()
+            .on('start', stopAnimation)
+            .on('drag', ({ dx, dy }) => {
+            const [λ, φ, γ] = state.projection.rotate();
+            state.rotate = [λ + dx * 0.25, Math.max(-90, Math.min(90, φ - dy * 0.25)), γ];
+            state.projection.rotate(state.rotate);
+            redrawGlobe();
+            })
+        ).style('cursor', 'grab');
 
-    // Zoom → scale
-    state.zoom = d3.zoom()
-    .scaleExtent([0.8, 10])
-    .on('zoom', ({ transform }) => {
-        state.currentZoom = transform.k;
-        const s = INITIAL_SCALE * transform.k;
-        state.projection.scale(s);
-        d3.select('#globe-clip circle').attr('r', s);
-        redrawGlobe();
-    });
+        // Zoom → scale
+        state.zoom = d3.zoom()
+        .scaleExtent([0.8, 10])
+        .on('zoom', ({ transform }) => {
+            state.currentZoom = transform.k;
+            const s = INITIAL_SCALE * transform.k;
+            state.projection.scale(s);
+            d3.select('#globe-clip circle').attr('r', s);
+            redrawGlobe();
+        });
 
-    state.svg.call(state.zoom).on('dblclick.zoom', null);
+        state.svg.call(state.zoom).on('dblclick.zoom', null);
 
-    addZoomButtons();
+        addZoomButtons();
+    } else {
+        // Infinite drag for 2D map with correct direction and zoom
+        let last = null;
+        addZoomButtons();
+        state.zoom = d3.zoom()
+            .filter(event => event.type === 'wheel')
+            .scaleExtent([0.5, 10])
+            .on('zoom', function(event) {
+                state.currentZoom = event.transform.k;
+                state.projection
+                    .scale((state.width / (2 * Math.PI)) * state.currentZoom)
+                    .translate([state.width / 2, state.height / 2]);
+                redrawGlobe();
+            });
+        state.svg.call(state.zoom);
+        // Attach drag to SVG for panning the projection
+        state.svg.call(
+            d3.drag()
+                .on('start', function(event) {
+                    last = { x: event.x, y: event.y };
+                })
+                .on('drag', function(event) {
+                    if (!last) return;
+                    const dx = event.x - last.x;
+                    const dy = event.y - last.y;
+                    last = { x: event.x, y: event.y };
+                    const scale = state.projection.scale();
+                    const dLon = dx / scale * 180 / Math.PI;
+                    const dLat = -dy / scale * 90 / (state.height / 2);
+                    state.rotate2D.lat = Math.max(-85, Math.min(85, state.rotate2D.lat + dLat));
+                    state.rotate2D.lon = ((state.rotate2D.lon + dLon + 540) % 360) - 180;
+                    state.projection.rotate([state.rotate2D.lon, state.rotate2D.lat]);
+                    redrawGlobe();
+                })
+        ).style('cursor', 'grab');
+    }
 }
 
 function redrawGlobe () {
@@ -320,7 +388,10 @@ function updateEarthquakes () {
     if (state.filters.volcano) data = data.filter(d => d.volcano);
 
     state.globe.selectAll('.earthquake-container').remove();
-    const g = state.globe.append('g').attr('class', 'earthquake-container').attr('clip-path', 'url(#globe-clip)');
+    const g = state.globe.append('g').attr('class', 'earthquake-container');
+    if (state.mapView === 'globe') {
+        g.attr('clip-path', 'url(#globe-clip)');
+    }
 
     const quakes = g.selectAll('.earthquake').data(data).enter().append('g').attr('class', 'earthquake')
     .on('mouseover', showQuakeTooltip).on('mouseout', hideTooltip);
@@ -346,15 +417,24 @@ function updateEarthquakes () {
 }
 
 function updateEarthquakePositions () {
-    const [λ, φ] = state.projection.rotate();
-    d3.selectAll('.earthquake').style('visibility', 'hidden').attr('transform', function (d) {
-    const [x, y] = state.projection([d.longitude, d.latitude]) || [];
-    const visible = d3.geoDistance([d.longitude, d.latitude], [-λ, -φ]) < Math.PI / 2;
-    if (visible) {
-        d3.select(this).style('visibility', 'visible');
-        return `translate(${x},${y})`;
+    if (state.mapView === 'globe') {
+        const [λ, φ] = state.projection.rotate();
+        d3.selectAll('.earthquake').style('visibility', 'hidden').attr('transform', function (d) {
+        const [x, y] = state.projection([d.longitude, d.latitude]) || [];
+        const visible = d3.geoDistance([d.longitude, d.latitude], [-λ, -φ]) < Math.PI / 2;
+        if (visible) {
+            d3.select(this).style('visibility', 'visible');
+            return `translate(${x},${y})`;
+        }
+        });
+    } else {
+        d3.selectAll('.earthquake').style('visibility', 'visible').attr('transform', function (d) {
+            // Normalize longitude to [-180, 180]
+            let lon = ((d.longitude + 180) % 360 + 360) % 360 - 180;
+            const [x, y] = state.projection([lon, d.latitude]) || [];
+            return `translate(${x},${y})`;
+        });
     }
-    });
 }
 
 /* ───────────────────────── Tooltip ───────────────────────── */
@@ -590,9 +670,6 @@ function updateTopBarChart() {
     state.topBar.y.domain([0, d3.max(data, d => metricKey === 'count' ? 1 : getMetricValue(d, metricKey)) || 0]);
 
     // Axes
-    // state.topBar.xAxis.transition().duration(500).call(
-    //     d3.axisBottom(state.topBar.x).tickFormat((d, i) => getShortLoc(data[i]))
-    // );
     state.topBar.yAxis.transition().duration(500).call(d3.axisLeft(state.topBar.y));
 
     // Remove old bars
