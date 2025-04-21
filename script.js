@@ -1,725 +1,533 @@
-// Global variables
-let width = 800;
-let height = 500;
-let earthquakeData = [];
-let years = [];
-let startYear = null;
-let endYear = null;
-let globe = null;
-let projection = null;
-let path = null;
-let svg = null;
-let rotate = [0, 0, 0];
-let drag = null;
-let zoom = null;
-let initialScale = 250;
-let currentZoomLevel = 1; // Track current zoom level
-let animationTimer = null;
-let isAnimating = false;
-// Filter states
-let showTsunamiOnly = false;
-let showVolcanoOnly = false;
+/* ───────────────────────── Config ───────────────────────── */
+const WIDTH  = 800;
+const HEIGHT = 500;
+const INITIAL_SCALE = 250;
+const MAG_COLORS = [
+    { limit: 8, color: '#F44336', radius: 8 },   // >8  ⇒ red
+    { limit: 7, color: '#FF5722', radius: 6 },   // 7‑8 ⇒ orange
+    { limit: 6, color: '#FFC107', radius: 4 }    // 6‑7 ⇒ yellow
+];
+const MAG_BINS = [
+    { key: 'small',  label: '≤6.0',      color: '#4CAF50' },
+    { key: 'medium', label: '6.1-7.0',   color: '#FFC107' },
+    { key: 'large',  label: '7.1-8.0',   color: '#FF5722' },
+    { key: 'major',  label: '>8.0',      color: '#F44336' }
+];
+const BAR_MARGIN = { top: 20, right: 30, bottom: 80, left: 80 };
 
-// Global noUiSlider reference
-let yearSlider = null;
+const BAR_METRICS = [
+    { key: 'count', label: 'Number of Earthquakes' },
+    { key: 'deaths', label: 'Deaths' },
+    { key: 'missing', label: 'Missing' },
+    { key: 'injuries', label: 'Injuries' },
+    { key: 'damage', label: 'Damage ($Mil)' },
+    { key: 'housesDestroyed', label: 'Houses Destroyed' },
+    { key: 'housesDamaged', label: 'Houses Damaged' },
+];
 
-// Add tooltip div
+/* ───────────────────────── State ───────────────────────── */
+const state = {
+    width: WIDTH,
+    height: HEIGHT,
+    projection: null,
+    path: null,
+    svg: null,
+    globe: null,
+    years: [],
+    yearRange: [null, null], // [start, end]
+    earthquakeData: [],
+    dataByYear: [],
+    zoom: null,
+    currentZoom: 1,
+    rotate: [0, 0, 0],
+    isAnimating: false,
+    animationTimer: null,
+    slider: null,
+    filters: { tsunami: false, volcano: false },
+    bar: {}
+};
+
+/* ───────────────────────── Helpers ───────────────────────── */
 const tooltip = d3.select('body').append('div').attr('class', 'tooltip');
 
-// Get the radius of an earthquake based on its magnitude
-function getRadiusByMagnitude(magnitude) {
-    if (!magnitude || isNaN(magnitude)) return 3;
-    if (magnitude > 8) return 8;
-    if (magnitude > 7) return 6;
-    if (magnitude > 6) return 4;
-    return 3;
+const getRadius = m => (MAG_COLORS.find(d => m > d.limit)?.radius) ?? 3;
+const getColor  = m => (MAG_COLORS.find(d => m > d.limit)?.color)  ?? '#4CAF50';
+
+function getMagnitudeBin(mag) {
+    if (mag > 8) return 'major';
+    if (mag > 7) return 'large';
+    if (mag > 6) return 'medium';
+    return 'small';
 }
 
-// Get the color of an earthquake based on its magnitude
-function getColorByMagnitude(magnitude) {
-    if (!magnitude || isNaN(magnitude)) return '#4CAF50';
-    
-    if (magnitude > 8) return '#F44336'; // Red
-    if (magnitude > 7) return '#FF5722'; // Orange
-    if (magnitude > 6) return '#FFC107'; // Yellow
-    return '#4CAF50'; // Green
+const debounce = (fn, ms) => { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); } };
+
+/* ───────────────────────── Init ───────────────────────── */
+document.addEventListener('DOMContentLoaded', init);
+
+async function init () {
+    buildSvg();
+    await loadEarthquakeData();
+    await drawGlobe();
+    buildYearSlider();
+    wireInteractions();
+    populateBarMetricDropdown(); // NEW: populate dropdown
+    initBarChart();
+    updateEarthquakes();
 }
 
-// Bar‑chart globals
-let dataByYear = [];
-let barSvg, barChart, barWidth, barHeight;
-const barMargin = { top: 20, right: 30, bottom: 80, left: 80 };
-let xScale, yScale, xAxis, yAxis;
+/* ───────────────────────── SVG / Projection ───────────────────────── */
+function buildSvg () {
+    state.svg = d3.select('#visualization')
+    .append('svg')
+    .attr('class', 'globe')
+    .attr('width', state.width)
+    .attr('height', state.height);
 
-// Initialize the visualization
-async function init() {
-    // Create the SVG element
-    svg = d3.select('#visualization')
-        .append('svg')
-        .attr('width', width)
-        .attr('height', height)
-        .attr('class', 'globe');
+    state.projection = d3.geoOrthographic()
+    .scale(INITIAL_SCALE)
+    .translate([state.width / 2, state.height / 2])
+    .clipAngle(90);
 
-    // Create a projection for the globe
-    projection = d3.geoOrthographic()
-        .scale(initialScale) // Use initial scale
-        .translate([width / 2, height / 2])
-        .clipAngle(90);
+    state.path = d3.geoPath().projection(state.projection);
+    state.globe = state.svg.append('g');
 
-    // Create a path generator for the globe
-    path = d3.geoPath().projection(projection);
-
-    // Create a group for the globe
-    globe = svg.append('g');
-
-    // Add a clipping path for the globe
-    svg.append('defs')
-        .append('clipPath')
-        .attr('id', 'globe-clip')
-        .append('circle')
-        .attr('cx', width / 2)
-        .attr('cy', height / 2)
-        .attr('r', projection.scale()); // Use current projection scale
-
-    // Load the world map data and earthquake data
-    try {
-        const [worldData] = await Promise.all([
-            d3.json('https://unpkg.com/world-atlas@2/countries-110m.json')
-        ]);
-
-        // Load earthquake data from the TSV file
-        await loadEarthquakeData();
-
-        // Draw the globe
-        drawGlobe(worldData);
-
-        // Setup year selector
-        setupYearSelector();
-
-        // Setup drag behavior for rotation
-        setupGlobeDrag();
-
-        // Setup zoom behavior for scaling
-        setupGlobeZoom();
-        
-        // initialize bar chart
-        initBarChart();
-        
-        // add initial quakes
-        updateEarthquakes();
-    } catch (error) {
-        console.error('Error loading data:', error);
-    }
+    state.svg.append('defs').append('clipPath')
+    .attr('id', 'globe-clip')
+    .append('circle')
+    .attr('cx', state.width / 2)
+    .attr('cy', state.height / 2)
+    .attr('r', state.projection.scale());
 }
 
-// Load earthquake data from the TSV file
-async function loadEarthquakeData() {
-    try {
-        const data = await d3.tsv('earthquakes-2025-04-19_10-45-30_+0100.tsv');
-        
-        // Process earthquake data
-        earthquakeData = data.filter(d => {
-            // Exclude rows without valid coordinates or year
-            return d.Year && d.Latitude && d.Longitude &&
-                   !isNaN(+d.Year) && !isNaN(+d.Latitude) && !isNaN(+d.Longitude) &&
-                   +d.Year >= 1900; // We're focusing on earthquakes from 1900 onwards
-        }).map(d => {
-            return {
-                year: +d.Year,
-                month: +d.Mo,
-                day: +d.Dy,
-                latitude: +d.Latitude,
-                longitude: +d.Longitude,
-                magnitude: +d.Mag || 0,
-                location: d['Location Name'] || 'Unknown',
-                depth: +d['Focal Depth (km)'] || 0,
-                deaths: +d.Deaths || 0,
-                tsunami: d.Tsu && d.Tsu.trim() !== '',  // Has tsunami flag
-                volcano: d.Vol && d.Vol.trim() !== '',  // Has volcano flag
-            };
-        });
-        
-        // Get unique years for the selector
-        years = [...new Set(earthquakeData.map(d => d.year))].sort();
-        
-        // Set default year range to the first year
-        if (years.length > 0) {
-            startYear = years[0];
-            endYear = years[0]; // Initially, the range is just the first year
-        }
-        aggregateDataByYear();
-    } catch (error) {
-        console.error('Error loading earthquake data:', error);
-    }
-}
+/* ───────────────────────── Data ───────────────────────── */
+async function loadEarthquakeData () {
+    const raw = await d3.tsv('earthquakes-2025-04-19_10-45-30_+0100.tsv');
 
-// aggregate deaths by year
-function aggregateDataByYear() {
-    dataByYear = Array.from(
-        d3.rollup(earthquakeData, v => d3.sum(v, d => d.deaths), d => d.year),
-        ([year, earthquakeDeaths]) => ({ year, earthquakeDeaths })
+    state.earthquakeData = raw
+    .filter(d =>
+        d.Year && d.Latitude && d.Longitude &&
+        +d.Year >= 1900 &&
+        ![d.Year, d.Latitude, d.Longitude].some(v => isNaN(+v)))
+    .map(d => ({
+        year: +d.Year,
+        month: +d.Mo,
+        day: +d.Dy,
+        latitude: +d.Latitude,
+        longitude: +d.Longitude,
+        magnitude: +d.Mag || 0,
+        location: d['Location Name'] || 'Unknown',
+        depth: +d['Focal Depth (km)'] || 0,
+        deaths: +d.Deaths || 0,
+        missing: +d.Missing || 0,
+        injuries: +d.Injuries || 0,
+        damage: +d['Damage ($Mil)'] || 0,
+        housesDestroyed: +d['Houses Destroyed'] || 0,
+        housesDamaged: +d['Houses Damaged'] || 0,
+        tsunami: Boolean(d.Tsu?.trim()),
+        volcano: Boolean(d.Vol?.trim())
+    }));
+
+    state.years = [...new Set(state.earthquakeData.map(d => d.year))].sort();
+    state.yearRange = [state.years[0], state.years[0]];
+
+    state.dataByYear = Array.from(
+    d3.rollup(state.earthquakeData, v => d3.sum(v, d => d.deaths), d => d.year),
+    ([year, earthquakeDeaths]) => ({ year, earthquakeDeaths })
     );
 }
 
-// Draw the globe
-function drawGlobe(worldData) {
-    // Draw graticule
-    const graticule = d3.geoGraticule();
-    globe.append('path')
-        .datum(graticule)
-        .attr('class', 'graticule')
-        .attr('d', path);
-    
-    // Draw countries
-    globe.selectAll('.country')
-        .data(topojson.feature(worldData, worldData.objects.countries).features)
-        .enter()
-        .append('path')
-        .attr('class', 'country')
-        .attr('d', path);
-    
-    // Draw globe outline
-    globe.append('path')
-        .datum({type: 'Sphere'})
-        .attr('class', 'sphere')
-        .attr('fill', 'none')
-        .attr('stroke', '#000')
-        .attr('stroke-width', '1.5px')
-        .attr('d', path);
+/* ───────────────────────── Globe ───────────────────────── */
+async function drawGlobe () {
+    const world = await d3.json('https://unpkg.com/world-atlas@2/countries-110m.json');
+
+    // Graticule & countries
+    state.globe.append('path')
+    .datum(d3.geoGraticule())
+    .attr('class', 'graticule')
+    .attr('d', state.path);
+
+    state.globe.selectAll('.country')
+    .data(topojson.feature(world, world.objects.countries).features)
+    .enter().append('path')
+    .attr('class', 'country')
+    .attr('d', state.path);
+
+    // Sphere outline
+    state.globe.append('path')
+    .datum({ type: 'Sphere' })
+    .attr('class', 'sphere')
+    .attr('fill', 'none')
+    .attr('stroke', '#000')
+    .attr('stroke-width', '1.5px')
+    .attr('d', state.path);
 }
 
-// Setup drag behavior for the globe rotation
-function setupGlobeDrag() {
-    drag = d3.drag()
-        .on('start', dragStarted)
-        .on('drag', dragged)
-        .on('end', dragEnded); // Add end handler
-
-    svg.call(drag)
-       .on("dblclick.zoom", null); // Disable double-click zoom if drag is active
-
-    svg.style('cursor', 'grab'); // Set initial cursor
+/* ───────────────────────── Zoom Buttons ───────────────────────── */
+function applyZoom (delta) {
+    const k = Math.max(0.8, Math.min(10, state.currentZoom + delta));
+    state.svg.call(state.zoom.transform, d3.zoomIdentity.scale(k));
 }
 
-// Setup zoom behavior for the globe scaling
-function setupGlobeZoom() {
-    zoom = d3.zoom()
-        .scaleExtent([0.8, 10]) // Limit zoom scale (80% to 1000%)
-        .on('zoom', zoomed);
+function addZoomButtons () {
+    const wrap = d3.select('#visualization').append('div').attr('class', 'zoom-controls');
 
-    svg.call(zoom);
-    
-    // Add the zoom buttons
-    addZoomControls();
-}
-
-// Handle zooming - update scale
-function zoomed(event) {
-    const { transform } = event;
-
-    // Update projection scale based on zoom transform's k
-    const newScale = initialScale * transform.k;
-    projection.scale(newScale);
-
-    // Update clipping path radius to match new scale
-    svg.select('#globe-clip circle').attr('r', newScale);
-    
-    // Store current zoom level
-    currentZoomLevel = transform.k;
-
-    // Redraw elements affected by scale change
-    redrawGlobeElements();
-}
-
-// Handle drag start
-function dragStarted(event) { // event is passed automatically by d3
-    // Stop animation when user starts dragging
-    stopAnimation();
-    d3.select(this).style('cursor', 'grabbing');
-}
-
-// Handle dragging - update rotation based on delta
-function dragged(event) { // event is passed automatically by d3
-    const sensitivity = 0.25;
-    const r = projection.rotate(); // Get current rotation
-
-    // Calculate new rotation based on drag delta (event.dx, event.dy)
-    rotate[0] = r[0] + event.dx * sensitivity;
-    rotate[1] = r[1] - event.dy * sensitivity;
-    rotate[1] = Math.max(-90, Math.min(90, rotate[1])); // Clamp latitude rotation
-
-    projection.rotate(rotate);
-
-    // Redraw elements affected by rotation
-    redrawGlobeElements();
-}
-
-// Handle drag end - reset cursor
-function dragEnded(event) { // event is passed automatically by d3
-    d3.select(this).style('cursor', 'grab');
-}
-
-// Helper function to redraw elements affected by projection changes
-function redrawGlobeElements() {
-    // Redraw paths using the updated projection
-    d3.selectAll('.country').attr('d', path);
-    d3.selectAll('.graticule').attr('d', path);
-    d3.selectAll('.sphere').attr('d', path);
-
-    // Update earthquake positions based on the updated projection
-    updateEarthquakePositions();
-}
-
-
-// Setup year selector
-function setupYearSelector() {
-    const minYear = Math.min(...years);
-    const maxYear = Math.max(...years);
-    const startYearDisplay = document.getElementById('start-year');
-    const endYearDisplay = document.getElementById('end-year');
-    const sliderContainer = document.getElementById('year-slider-container');
-    sliderContainer.innerHTML = '';
-    noUiSlider.create(sliderContainer, {
-        start: [startYear, endYear],
-        connect: true,
-        range: { min: minYear, max: maxYear },
-        step: 1,
-        tooltips: [true, true],
-        format: { to: v => Math.round(v), from: v => +v }
+    [['+', 'zoom-in', 0.2], ['−', 'zoom-out', -0.2]].forEach(([txt, id, delta], idx) => {
+        wrap.append('button').attr('class', 'zoom-button').attr('id', id).text(txt)
+        .attr('aria-label', txt === '+' ? 'Zoom in' : 'Zoom out')
+        .on('click', () => applyZoom(delta));
+        
+        if (idx === 0) wrap.append('div').attr('class', 'zoom-separator');
     });
-    const slider = sliderContainer.noUiSlider;
-    yearSlider = slider;
-    slider.on('update', (values) => {
-        startYear = +values[0];
-        endYear = +values[1];
-        startYearDisplay.textContent = startYear;
-        endYearDisplay.textContent = endYear;
+}
+
+/* ───────────────────────── Year Slider & Controls ───────────────────────── */
+function buildYearSlider () {
+    const sliderWrap = document.getElementById('year-slider-container');
+    sliderWrap.innerHTML = '';
+    noUiSlider.create(sliderWrap, {
+    start: state.yearRange,
+    connect: true,
+    range: { min: d3.min(state.years), max: d3.max(state.years) },
+    step: 1,
+    tooltips: true,
+    format: { to: Math.round, from: Number }
     });
-    slider.on('set', () => {
+    state.slider = sliderWrap.noUiSlider;
+
+    const startLbl = document.getElementById('start-year');
+    const endLbl   = document.getElementById('end-year');
+    state.slider.on('update', v => {
+        state.yearRange = v.map(Number);
+        [startLbl.textContent, endLbl.textContent] = state.yearRange;
+    });
+    state.slider.on('set', () => {
         updateEarthquakes();
         updateBarChart();
     });
-    // Play/Pause and speed controls appended below
-    const controlsDiv = document.querySelector('.year-control');
-    let controlsWrapper = controlsDiv.querySelector('.controls-wrapper');
-    if (!controlsWrapper) {
-        controlsWrapper = document.createElement('div');
-        controlsWrapper.className = 'controls-wrapper';
-        controlsDiv.appendChild(controlsWrapper);
-    }
-    let playButton = document.getElementById('play-button');
-    if (!playButton) {
-        playButton = document.createElement('button');
-        playButton.id = 'play-button';
-        playButton.innerHTML = '▶ Play';
-        playButton.className = 'control-button';
-        playButton.addEventListener('click', toggleAnimation);
-        controlsWrapper.appendChild(playButton);
-    }
-    let speedControl = controlsDiv.querySelector('.speed-control');
-    if (!speedControl) {
-        speedControl = document.createElement('div');
-        speedControl.className = 'speed-control';
-        speedControl.innerHTML = `
-            <label for="speed-slider">Speed:</label>
-            <input type="range" id="speed-slider" min="250" max="2000" value="1000" class="speed-slider">
-            <div class="speed-labels"><span>Slow</span><span>Fast</span></div>
-        `;
-        controlsWrapper.appendChild(speedControl);
-    }
-    
-    // Add filter checkboxes
-    let filterControls = document.getElementById('filter-controls');
-    if (!filterControls) {
-        filterControls = document.createElement('div');
-        filterControls.id = 'filter-controls';
-        filterControls.className = 'filter-controls';
-        filterControls.innerHTML = `
-            <div class="filter-title">Event Filters:</div>
-            <label class="filter-checkbox">
-                <input type="checkbox" id="tsunami-filter"> 
-                <span class="tsunami-icon">🌊</span> Tsunami
-            </label>
-            <label class="filter-checkbox">
-                <input type="checkbox" id="volcano-filter">
-                <span class="volcano-icon">🌋</span> Volcano
-            </label>
-        `;
-        controlsDiv.appendChild(filterControls);
-        
-        // Add event listeners for the checkboxes
-        document.getElementById('tsunami-filter').addEventListener('change', function(e) {
-            showTsunamiOnly = e.target.checked;
-            updateEarthquakes();
-        });
-        
-        document.getElementById('volcano-filter').addEventListener('change', function(e) {
-            showVolcanoOnly = e.target.checked;
-            updateEarthquakes();
-        });
-    }
+
+    addYearControls();
 }
 
-// Toggle animation play/pause
-function toggleAnimation() {
-    const playButton = document.getElementById('play-button');
-    
-    if (isAnimating) {
-        stopAnimation();
-        playButton.innerHTML = '▶ Play';
-    } else {
-        startAnimation();
-        playButton.innerHTML = '⏸ Pause';
+function addYearControls () {
+    const controls = document.querySelector('.year-control');
+
+    // Play / Pause
+    let playBtn = document.getElementById('play-button');
+    if (!playBtn) {
+        playBtn = document.createElement('button');
+        playBtn.id = 'play-button';
+        playBtn.className = 'control-button';
+        controls.appendChild(playBtn);
     }
+    playBtn.textContent = '▶ Play';
+    playBtn.onclick = toggleAnimation;
+
+    // Speed slider
+    if (!controls.querySelector('#speed-slider')) {
+    controls.insertAdjacentHTML('beforeend', `
+        <label for="speed-slider">Speed:</label>
+        <input type="range" id="speed-slider" min="250" max="2000" value="1000" class="speed-slider">
+        <div class="speed-labels"><span>Slow</span><span>Fast</span></div>
+    `);
+    }
+
+    // Filters
+    if (!document.getElementById('filter-controls')) {
+    controls.insertAdjacentHTML('beforeend', `
+        <div id="filter-controls" class="filter-controls">
+        <div class="filter-title">Event Filters:</div>
+        <label class="filter-checkbox"><input type="checkbox" id="tsunami-filter"> <span class="tsunami-icon">🌊</span> Tsunami</label>
+        <label class="filter-checkbox"><input type="checkbox" id="volcano-filter"> <span class="volcano-icon">🌋</span> Volcano</label>
+        </div>`);
+    }
+
+    document.getElementById('tsunami-filter').onchange = e => { state.filters.tsunami = e.target.checked; updateEarthquakes(); };
+    document.getElementById('volcano-filter').onchange = e => { state.filters.volcano = e.target.checked; updateEarthquakes(); };
 }
 
-// Play animation for the year range using noUiSlider
-function startAnimation() {
-    if (isAnimating) return;
-    isAnimating = true;
-    
-    const speedSlider = document.getElementById('speed-slider');
-    const playButton = document.getElementById('play-button');
-    const maxYear = Math.max(...years);
-    
-    playButton.innerHTML = '⏸ Pause';
-    
-    animationTimer = setInterval(() => {
-        if (!yearSlider) return;
-        
-        const values = yearSlider.get();
-        let cs = +values[0];
-        let ce = +values[1];
-        
-        if (ce < maxYear) {
-            // Increment end year
-            ce++;
-            yearSlider.set([cs, ce]);
-        } else if (cs < maxYear) {
-            // If end year reached max, increment both
-            cs++;
-            ce = cs;
-            yearSlider.set([cs, ce]);
-        } else {
-            // Reset to beginning when both reach max
-            cs = Math.min(...years);
-            ce = cs;
-            yearSlider.set([cs, ce]);
-        }
-        
-    }, 2250 - speedSlider.value); // Speed calculation
+/* ───────────────────────── Interactions (Drag, Zoom) ───────────────────────── */
+function wireInteractions () {
+    // Drag → rotate
+    state.svg.call(
+    d3.drag()
+        .on('start', stopAnimation)
+        .on('drag', ({ dx, dy }) => {
+        const [λ, φ, γ] = state.projection.rotate();
+        state.rotate = [λ + dx * 0.25, Math.max(-90, Math.min(90, φ - dy * 0.25)), γ];
+        state.projection.rotate(state.rotate);
+        redrawGlobe();
+        })
+    ).style('cursor', 'grab');
+
+    // Zoom → scale
+    state.zoom = d3.zoom()
+    .scaleExtent([0.8, 10])
+    .on('zoom', ({ transform }) => {
+        state.currentZoom = transform.k;
+        const s = INITIAL_SCALE * transform.k;
+        state.projection.scale(s);
+        d3.select('#globe-clip circle').attr('r', s);
+        redrawGlobe();
+    });
+
+    state.svg.call(state.zoom).on('dblclick.zoom', null);
+
+    addZoomButtons();
 }
 
-function stopAnimation() {
-    if (!isAnimating) return;
-    clearInterval(animationTimer);
-    isAnimating = false;
-    const playButton = document.getElementById('play-button');
-    if (playButton) playButton.innerHTML = '▶ Play';
-}
-
-// Update earthquakes based on the selected year range and filters
-function updateEarthquakes() {
-    // Filter earthquakes for the selected year range and applied filters
-    let filteredData = earthquakeData.filter(d => d.year >= startYear && d.year <= endYear);
-    
-    // Apply tsunami filter if enabled
-    if (showTsunamiOnly) {
-        filteredData = filteredData.filter(d => d.tsunami);
-    }
-    
-    // Apply volcano filter if enabled
-    if (showVolcanoOnly) {
-        filteredData = filteredData.filter(d => d.volcano);
-    }
-    
-    // Remove existing earthquakes
-    globe.selectAll('.earthquake').remove();
-    globe.selectAll('.earthquake-container').remove();
-    
-    // Create a group for earthquakes with clip path
-    const earthquakesGroup = globe.append('g')
-        .attr('class', 'earthquake-container')
-        .attr('clip-path', 'url(#globe-clip)');
-    
-    // Add earthquakes as points
-    const earthquakes = earthquakesGroup.selectAll('.earthquake')
-        .data(filteredData)
-        .enter()
-        .append('g')
-        .attr('class', 'earthquake')
-        .on('mouseover', showEarthquakeInfo)
-        .on('mouseout', hideEarthquakeInfo);
-        
-    // Add the main earthquake circle
-    earthquakes.append('circle')
-        .attr('r', d => getRadiusByMagnitude(d.magnitude))
-        .attr('fill', d => getColorByMagnitude(d.magnitude))
-        .attr('stroke', '#fff')
-        .attr('stroke-width', '0.5px')
-        .attr('fill-opacity', 0.7);
-    
-    // Add tsunami indicator if applicable
-    earthquakes.filter(d => d.tsunami)
-        .append('circle')
-        .attr('r', d => getRadiusByMagnitude(d.magnitude) * 1.5)
-        .attr('fill', 'none')
-        .attr('stroke', '#00BFFF')
-        .attr('stroke-width', '1.5px')
-        .attr('stroke-dasharray', '2,2');
-        
-    // Add volcano indicator if applicable
-    earthquakes.filter(d => d.volcano)
-        .append('circle')
-        .attr('r', d => getRadiusByMagnitude(d.magnitude) * 1.3)
-        .attr('fill', 'none')
-        .attr('stroke', '#FF4500')
-        .attr('stroke-width', '1.5px');
-    
-    // Set initial positions
+function redrawGlobe () {
+    d3.selectAll('.country, .graticule, .sphere').attr('d', state.path);
     updateEarthquakePositions();
-    
-    // Log count for debugging
-    console.log(`Displaying ${filteredData.length} earthquakes for year range ${startYear}-${endYear}, tsunami: ${showTsunamiOnly}, volcano: ${showVolcanoOnly}`);
+}
+
+/* ───────────────────────── Animation ───────────────────────── */
+function toggleAnimation () {
+    state.isAnimating ? stopAnimation() : startAnimation();
+}
+
+function startAnimation () {
+    if (state.isAnimating) return;
+    state.isAnimating = true;
+    document.getElementById('play-button').textContent = '⏸ Pause';
+
+    const speedSlider = document.getElementById('speed-slider');
+    const maxYear = d3.max(state.years);
+
+    state.animationTimer = setInterval(() => {
+    const [s, e] = state.slider.get().map(Number);
+    if (e < maxYear) state.slider.set([s, e + 1]);
+    else if (s < maxYear) state.slider.set([s + 1, s + 1]);
+    else state.slider.set([d3.min(state.years), d3.min(state.years)]);
+    }, 2250 - speedSlider.value);
+}
+
+function stopAnimation () {
+    clearInterval(state.animationTimer);
+    state.isAnimating = false;
+    document.getElementById('play-button').textContent = '▶ Play';
+}
+
+/* ───────────────────────── Earthquakes ───────────────────────── */
+function updateEarthquakes () {
+    const [start, end] = state.yearRange;
+    let data = state.earthquakeData.filter(d => d.year >= start && d.year <= end);
+    if (state.filters.tsunami) data = data.filter(d => d.tsunami);
+    if (state.filters.volcano) data = data.filter(d => d.volcano);
+
+    state.globe.selectAll('.earthquake-container').remove();
+    const g = state.globe.append('g').attr('class', 'earthquake-container').attr('clip-path', 'url(#globe-clip)');
+
+    const quakes = g.selectAll('.earthquake').data(data).enter().append('g').attr('class', 'earthquake')
+    .on('mouseover', showQuakeTooltip).on('mouseout', hideTooltip);
+
+    quakes.append('circle')
+    .attr('r', d => getRadius(d.magnitude))
+    .attr('fill', d => getColor(d.magnitude))
+    .attr('stroke', '#fff').attr('stroke-width', '0.5px')
+    .attr('fill-opacity', 0.7);
+
+    quakes.filter(d => d.tsunami).append('circle')
+    .attr('r', d => getRadius(d.magnitude) * 1.5)
+    .attr('fill', 'none').attr('stroke', '#00BFFF')
+    .attr('stroke-width', '1.5px').attr('stroke-dasharray', '2 2');
+
+    quakes.filter(d => d.volcano).append('circle')
+    .attr('r', d => getRadius(d.magnitude) * 1.3)
+    .attr('fill', 'none').attr('stroke', '#FF4500')
+    .attr('stroke-width', '1.5px');
+
+    updateEarthquakePositions();
     updateBarChart();
 }
 
-// Update earthquake positions when the globe rotates or zooms
-function updateEarthquakePositions() {
-    // No change needed here, but ensure it uses the current projection state implicitly
-    const [lambda, phi] = projection.rotate();
-    d3.selectAll('.earthquake').each(function(d) {
-        const point = d3.select(this);
-        const coord = projection([d.longitude, d.latitude]);
-        // Determine if on front hemisphere
-        const visible = d3.geoDistance([d.longitude, d.latitude], [-lambda, -phi]) < Math.PI / 2;
-        if (coord && visible) {
-            point.attr('transform', `translate(${coord[0]}, ${coord[1]})`)
-                 .style('visibility', 'visible');
-        } else {
-            point.style('visibility', 'hidden');
-        }
+function updateEarthquakePositions () {
+    const [λ, φ] = state.projection.rotate();
+    d3.selectAll('.earthquake').style('visibility', 'hidden').attr('transform', function (d) {
+    const [x, y] = state.projection([d.longitude, d.latitude]) || [];
+    const visible = d3.geoDistance([d.longitude, d.latitude], [-λ, -φ]) < Math.PI / 2;
+    if (visible) {
+        d3.select(this).style('visibility', 'visible');
+        return `translate(${x},${y})`;
+    }
     });
 }
 
-// Show earthquake information on hover
-function showEarthquakeInfo(event, d) {
-    const info = `
-        <strong>Date:</strong> ${d.year}/${d.month || '?'} / ${d.day || '?'}<br/>
+/* ───────────────────────── Tooltip ───────────────────────── */
+function showQuakeTooltip (event, d) {
+    // Format date as YYYY-MM-DD, with leading zeros or '?' if missing
+    const pad = v => v ? String(v).padStart(2, '0') : '?';
+    const dateStr = `${d.year}-${pad(d.month)}-${pad(d.day)}`;
+    
+    tooltip.html(`
+        <div style="min-width:180px">
+        <strong>Date:</strong> ${dateStr}<br/>
         <strong>Location:</strong> ${d.location}<br/>
         <strong>Coordinates:</strong> ${d.latitude.toFixed(2)}, ${d.longitude.toFixed(2)}<br/>
         <strong>Magnitude:</strong> ${d.magnitude ? d.magnitude.toFixed(1) : 'Unknown'}<br/>
-        ${d.deaths > 0 ? `<strong>Deaths:</strong> ${d.deaths}<br/>` : ''}
+        <strong>Deaths:</strong> ${d.deaths ?? 0}<br/>
         ${d.depth > 0 ? `<strong>Depth:</strong> ${d.depth} km<br/>` : ''}
         ${d.tsunami ? '<strong>Tsunami:</strong> Yes<br/>' : ''}
         ${d.volcano ? '<strong>Volcano:</strong> Yes<br/>' : ''}
-    `;
-    tooltip.html(info)
-        .style('left', (event.pageX + 10) + 'px')
-        .style('top', (event.pageY + 10) + 'px')
-        .style('opacity', 1);
-    d3.select(event.currentTarget).selectAll('circle')
-        .attr('stroke-width', '2px')
-        .attr('fill-opacity', 1);
+        </div>
+    `)
+    .style('left', event.pageX + 10 + 'px')
+    .style('top', event.pageY + 10 + 'px')
+    .style('opacity', 1);
+
+    d3.select(event.currentTarget).selectAll('circle').attr('stroke-width', 2).attr('fill-opacity', 1);
 }
 
-// Hide earthquake information on mouseout
-function hideEarthquakeInfo(event) {
+function hideTooltip (event) {
     tooltip.style('opacity', 0);
-    d3.select(event.currentTarget).selectAll('circle')
-        .attr('stroke-width', function() {
-            return d3.select(this).classed('earthquake-circle') ? '0.5px' : '1.5px';
+    d3.select(event.currentTarget).selectAll('circle').attr('stroke-width', 1.5).attr('fill-opacity', 0.7);
+}
+
+/* ───────────────────────── Bar Chart ───────────────────────── */
+function initBarChart () {
+    const container = document.getElementById('bar-chart-container');
+    state.bar.width  = container.clientWidth  - BAR_MARGIN.left - BAR_MARGIN.right;
+    state.bar.height = (container.clientHeight || 300) - BAR_MARGIN.top - BAR_MARGIN.bottom;
+
+    state.bar.svg = d3.select('#bar-chart-container').append('svg')
+    .attr('width',  state.bar.width + BAR_MARGIN.left + BAR_MARGIN.right)
+    .attr('height', state.bar.height + BAR_MARGIN.top + BAR_MARGIN.bottom)
+    .append('g').attr('transform', `translate(${BAR_MARGIN.left},${BAR_MARGIN.top})`);
+
+    state.bar.x = d3.scaleBand().range([0, state.bar.width]).padding(0.1);
+    state.bar.y = d3.scaleLinear().range([state.bar.height, 0]);
+
+    state.bar.xAxis = state.bar.svg.append('g')
+    .attr('class', 'axis x-axis')
+    .attr('transform', `translate(0,${state.bar.height})`);
+    state.bar.yAxis = state.bar.svg.append('g').attr('class', 'axis y-axis');
+
+    state.bar.svg.append('text').attr('class', 'axis-label')
+    .attr('x', state.bar.width / 2).attr('y', state.bar.height + 40)
+    .attr('text-anchor', 'middle').text('Year');
+
+    // Set y-axis label to selected metric
+    const metricLabel = BAR_METRICS.find(m => m.key === state.selectedBarMetric)?.label || 'Deaths';
+    state.bar.svg.append('text').attr('class', 'axis-label')
+    .attr('transform', 'rotate(-90)')
+    .attr('x', -state.bar.height / 2).attr('y', -55)
+    .attr('text-anchor', 'middle').text(metricLabel);
+}
+
+function updateBarChart () {
+    const [start, end] = state.yearRange;
+    const metricKey = state.selectedBarMetric;
+    // Aggregate selected metric per year per magnitude bin
+    const data = [];
+    for (let year = start; year <= end; year++) {
+        const yearData = state.earthquakeData.filter(d => d.year === year);
+        const bins = { year };
+        MAG_BINS.forEach(bin => bins[bin.key] = 0);
+        yearData.forEach(d => {
+            const bin = getMagnitudeBin(d.magnitude);
+            let value = 0;
+            if (metricKey === 'count') {
+                value = 1;
+            } else {
+                switch (metricKey) {
+                    case 'deaths': value = +d.Deaths || d.deaths || 0; break;
+                    case 'missing': value = +d.Missing || d.missing || 0; break;
+                    case 'injuries': value = +d.Injuries || d.injuries || 0; break;
+                    case 'damage': value = +d['Damage ($Mil)'] || d.damage || 0; break;
+                    case 'housesDestroyed': value = +d['Houses Destroyed'] || d.housesDestroyed || 0; break;
+                    case 'housesDamaged': value = +d['Houses Damaged'] || d.housesDamaged || 0; break;
+                    default: value = d.deaths || 0;
+                }
+            }
+            bins[bin] += value;
+        });
+        data.push(bins);
+    }
+
+    state.bar.x.domain(data.map(d => d.year));
+    // Y domain: max total for selected metric in any year
+    state.bar.y.domain([0, d3.max(data, d => MAG_BINS.reduce((sum, bin) => sum + d[bin.key], 0)) || 0]);
+
+    // Axes
+    state.bar.xAxis.transition().duration(500).call(
+        d3.axisBottom(state.bar.x).tickValues(
+            state.bar.x.domain().filter((_, i) => i % Math.ceil(data.length / 10) === 0)
+        ));
+    state.bar.yAxis.transition().duration(500).call(d3.axisLeft(state.bar.y));
+
+    // Stack data
+    const stack = d3.stack().keys(MAG_BINS.map(b => b.key));
+    const series = stack(data);
+
+    // Remove old bars
+    state.bar.svg.selectAll('.bar-group').remove();
+
+    // Draw stacked bars
+    const groups = state.bar.svg.selectAll('.bar-group')
+        .data(series, d => d.key)
+        .enter().append('g')
+        .attr('class', 'bar-group')
+        .attr('fill', d => MAG_BINS.find(b => b.key === d.key).color);
+
+    groups.selectAll('rect')
+        .data(d => d)
+        .enter().append('rect')
+        .attr('x', d => state.bar.x(d.data.year))
+        .attr('y', d => state.bar.y(d[1]))
+        .attr('height', d => state.bar.y(d[0]) - state.bar.y(d[1]))
+        .attr('width', state.bar.x.bandwidth())
+        .on('mouseover', function(event, d) {
+            // Find bin key from parent group
+            const binKey = d3.select(this.parentNode).datum().key;
+            const bin = MAG_BINS.find(b => b.key === binKey);
+            const metricLabel = BAR_METRICS.find(m => m.key === metricKey)?.label || metricKey;
+            tooltip.html(`<strong>${d.data.year}</strong><br/>${bin.label} ${metricLabel}: ${d.data[bin.key]}`)
+                .style('left', event.pageX + 10 + 'px')
+                .style('top', event.pageY + 10 + 'px')
+                .style('opacity', 1);
+            d3.select(this).attr('fill-opacity', 1);
+        })
+        .on('mouseout', function(event) {
+            tooltip.style('opacity', 0);
+            d3.select(this).attr('fill-opacity', 0.7);
         })
         .attr('fill-opacity', 0.7);
 }
 
-// Add zoom control buttons
-function addZoomControls() {
-    // Create container for zoom controls
-    const container = d3.select('#visualization');
-    const zoomControls = container.append('div')
-        .attr('class', 'zoom-controls');
-    
-    // Add zoom in button with inline styles
-    zoomControls.append('button')
-        .attr('class', 'zoom-button')
-        .attr('id', 'zoom-in')
-        .attr('aria-label', 'Zoom in')
-        .style('width', '36px')
-        .style('height', '36px')
-        .style('background-color', '#000000')
-        .style('color', '#FFFFFF')
-        .style('border', 'none')
-        .style('border-radius', '50%')
-        .style('font-size', '24px')
-        .style('font-weight', 'bold')
-        .style('cursor', 'pointer')
-        .style('display', 'flex')
-        .style('align-items', 'center')
-        .style('justify-content', 'center')
-        .text('+')
-        .on('click', () => zoomByDelta(0.2));
-    
-    // Add separator
-    zoomControls.append('div')
-        .attr('class', 'zoom-separator');
-    
-    // Add zoom out button with inline styles
-    zoomControls.append('button')
-        .attr('class', 'zoom-button')
-        .attr('id', 'zoom-out')
-        .attr('aria-label', 'Zoom out')
-        .style('width', '36px')
-        .style('height', '36px')
-        .style('background-color', '#000000')
-        .style('color', '#FFFFFF')
-        .style('border', 'none')
-        .style('border-radius', '50%')
-        .style('font-size', '24px')
-        .style('font-weight', 'bold')
-        .style('cursor', 'pointer')
-        .style('display', 'flex')
-        .style('align-items', 'center')
-        .style('justify-content', 'center')
-        .text('−')
-        .on('click', () => zoomByDelta(-0.2));
-}
-
-// Zoom in/out by a delta amount
-function zoomByDelta(delta) {
-    // Get current zoom level
-    const newZoomLevel = Math.max(0.8, Math.min(10, currentZoomLevel + delta));
-    
-    // Apply the zoom transform
-    svg.call(zoom.transform, d3.zoomIdentity.scale(newZoomLevel));
-}
-
-// Call init when the document is loaded
-document.addEventListener('DOMContentLoaded', function() {
-    init();
-
-    // Handle window resize - consolidated into one handler
-    window.addEventListener('resize', function() {
-        // Globe resize
-        const container = document.getElementById('visualization');
-        if (container) {
-            const containerWidth = container.clientWidth;
-            width = Math.min(800, containerWidth);
-            height = Math.min(500, width * (500/800));
-
-            if (svg) {
-                svg.attr('width', width).attr('height', height);
-                projection.translate([width / 2, height / 2]);
-                
-                const currentScale = projection.scale();
-                svg.select('#globe-clip circle')
-                   .attr('cx', width / 2)
-                   .attr('cy', height / 2)
-                   .attr('r', currentScale);
-
-                redrawGlobeElements();
-            }
-        }
-        
-        // Bar chart resize
-        const barContainer = document.getElementById('bar-chart-container');
-        if (barContainer) {
-            // Clear the container completely before reinitializing
-            d3.select('#bar-chart-container').html('');
-            barSvg = null; // Reset barSvg reference
-            initBarChart();
-            updateBarChart();
-        }
+// Set default selected metric in state
+state.selectedBarMetric = 'count';
+// Populate the bar metric dropdown and set up event listener
+function populateBarMetricDropdown() {
+    const select = document.getElementById('bar-metric-select');
+    select.innerHTML = '';
+    BAR_METRICS.forEach(metric => {
+        const option = document.createElement('option');
+        option.value = metric.key;
+        option.textContent = metric.label;
+        if (metric.key === state.selectedBarMetric) option.selected = true;
+        select.appendChild(option);
     });
-});
-
-// create SVG, scales, axes for bar chart
-function initBarChart() {
-  // Clear any existing content to prevent duplication
-  d3.select('#bar-chart-container').html('');
-  
-  const container = document.getElementById('bar-chart-container');
-  barWidth  = container.clientWidth  - barMargin.left - barMargin.right;
-  barHeight = container.clientHeight - barMargin.top  - barMargin.bottom || 300;
-  
-  barSvg = d3.select('#bar-chart-container')
-    .append('svg')
-      .attr('width',  barWidth + barMargin.left + barMargin.right)
-      .attr('height', barHeight + barMargin.top  + barMargin.bottom)
-    .append('g')
-      .attr('transform', `translate(${barMargin.left},${barMargin.top})`);
-
-  xScale = d3.scaleBand().range([0, barWidth]).padding(0.1);
-  yScale = d3.scaleLinear().range([barHeight, 0]);
-
-  xAxis = barSvg.append('g')
-    .attr('class','axis x-axis')
-    .attr('transform',`translate(0,${barHeight})`);
-
-  yAxis = barSvg.append('g')
-    .attr('class','axis y-axis');
-
-  // X-axis label - increased y distance to 60px from axis
-  barSvg.append('text')
-    .attr('class','axis-label')
-    .attr('x', barWidth/2)
-    .attr('y', barHeight + 40)
-    .attr('text-anchor','middle')
-    .text('Year');
-
-  // Y-axis label - increased distance from axis
-  barSvg.append('text')
-    .attr('class','axis-label')
-    .attr('transform','rotate(-90)')
-    .attr('x', -barHeight/2)
-    .attr('y', -55)  // Increased from -40 to -55
-    .attr('text-anchor','middle')
-    .text('Deaths');
+    select.onchange = function() {
+        state.selectedBarMetric = this.value;
+        d3.select('#bar-chart-container').html('');
+        initBarChart();
+        updateBarChart();
+    };
 }
 
-// update bars on slider change or data load
-function updateBarChart() {
-  const filtered = dataByYear.filter(d => d.year>=startYear && d.year<=endYear);
-  xScale.domain(filtered.map(d=>d.year));
-  yScale.domain([0, d3.max(filtered,d=>d.earthquakeDeaths)||0]);
+/* ───────────────────────── Responsive ───────────────────────── */
+window.addEventListener('resize', debounce(() => {
+    const vis = document.getElementById('visualization');
+    state.width = Math.min(800, vis.clientWidth);
+    state.height = Math.min(500, state.width * (500 / 800));
 
-  xAxis.transition().duration(500)
-    .call(d3.axisBottom(xScale).tickValues(
-      xScale.domain().filter((_,i) => i % Math.ceil(filtered.length/10)===0)
-    ));
-  yAxis.transition().duration(500)
-    .call(d3.axisLeft(yScale));
+    state.svg.attr('width', state.width).attr('height', state.height);
+    state.projection.translate([state.width / 2, state.height / 2]);
+    d3.select('#globe-clip circle').attr('cx', state.width / 2).attr('cy', state.height / 2);
 
-  const bars = barSvg.selectAll('.bar')
-    .data(filtered, d=>d.year);
+    redrawGlobe();
 
-  bars.enter().append('rect')
-      .attr('class','bar')
-      .attr('x', d=>xScale(d.year))
-      .attr('y', barHeight)
-      .attr('width', xScale.bandwidth())
-      .attr('height', 0)
-      .on('mouseover', showBarInfo) // Add tooltip handler
-      .on('mouseout', hideBarInfo)  // Add tooltip handler
-    .merge(bars)
-      .transition().duration(500)
-      .attr('x', d=>xScale(d.year))
-      .attr('y', d=>yScale(d.earthquakeDeaths))
-      .attr('width', xScale.bandwidth())
-      .attr('height', d=>barHeight - yScale(d.earthquakeDeaths));
-
-  bars.exit()
-    .transition().duration(500)
-      .attr('y', barHeight)
-      .attr('height', 0)
-    .remove();
-}
-
-// tooltip for bars
-function showBarInfo(event,d){
-  tooltip.html(`<strong>${d.year}</strong><br/>Deaths: ${d.earthquakeDeaths}`)
-    .style('left', event.pageX+10+'px')
-    .style('top',  event.pageY+10+'px')
-    .style('opacity',1);
-}
-function hideBarInfo(){ tooltip.style('opacity',0); }
+    d3.select('#bar-chart-container').html('');
+    initBarChart();
+    updateBarChart();
+}, 150));
