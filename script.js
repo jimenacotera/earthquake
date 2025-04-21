@@ -421,10 +421,14 @@ function initBarChart () {
 function updateBarChart () {
     const [start, end] = state.yearRange;
     const metricKey = state.selectedBarMetric;
+    // Filter by year range and any filters (tsunami/volcano)
+    let filteredData = state.earthquakeData.filter(d => d.year >= start && d.year <= end);
+    if (state.filters.tsunami) filteredData = filteredData.filter(d => d.tsunami);
+    if (state.filters.volcano) filteredData = filteredData.filter(d => d.volcano);
     // Aggregate selected metric per year per magnitude bin
     const data = [];
     for (let year = start; year <= end; year++) {
-        const yearData = state.earthquakeData.filter(d => d.year === year);
+        const yearData = filteredData.filter(d => d.year === year);
         const bins = { year };
         MAG_BINS.forEach(bin => bins[bin.key] = 0);
         yearData.forEach(d => {
