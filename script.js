@@ -85,6 +85,7 @@ async function init () {
     updateTopBarChart();
     updateEarthquakes();
     wireMapViewSelect();
+    addZoomButtons();
 }
 
 function wireMapViewSelect() {
@@ -97,45 +98,9 @@ function wireMapViewSelect() {
         drawGlobe().then(() => {
             wireInteractions();
             updateEarthquakes();
+            addZoomButtons();
         });
     };
-}
-
-/* ───────────────────────── SVG / Projection ───────────────────────── */
-function buildSvg () {
-    state.svg = d3.select('#visualization')
-    .append('svg')
-    .attr('class', state.mapView === 'globe' ? 'globe' : 'map')
-    .attr('width', state.width)
-    .attr('height', state.height);
-
-    if (state.mapView === 'globe') {
-        state.projection = d3.geoOrthographic()
-            .scale(INITIAL_SCALE)
-            .translate([state.width / 2, state.height / 2])
-            .clipAngle(90);
-    } else {
-        // Mercator projection, infinite drag
-        state.projection = d3.geoEquirectangular()
-            .scale(state.width / (2 * Math.PI))
-            .translate([state.width / 2, state.height / 2])
-            .rotate([state.rotate2D?.lon || 0, state.rotate2D?.lat || 0]);
-        // Store rotation state for 2D
-        if (!state.rotate2D) state.rotate2D = { lon: 0, lat: 0 };
-    }
-    state.path = d3.geoPath().projection(state.projection);
-    state.globe = state.svg.append('g');
-
-    if (state.mapView === 'globe') {
-        state.svg.append('defs').append('clipPath')
-            .attr('id', 'globe-clip')
-            .append('circle')
-            .attr('cx', state.width / 2)
-            .attr('cy', state.height / 2)
-            .attr('r', state.projection.scale());
-    } else {
-        d3.select('#globe-clip').remove();
-    }
 }
 
 /* ───────────────────────── Data ───────────────────────── */
@@ -193,6 +158,43 @@ function initializeQuantitativeFilters() {
         const max = Math.max(...values);
         state.filters[f.key] = { min, max, current: [min, max] };
     });
+}
+
+/* ───────────────────────── SVG / Projection ───────────────────────── */
+function buildSvg () {
+    state.svg = d3.select('#visualization')
+    .append('svg')
+    .attr('class', state.mapView === 'globe' ? 'globe' : 'map')
+    .attr('width', state.width)
+    .attr('height', state.height);
+
+    if (state.mapView === 'globe') {
+        state.projection = d3.geoOrthographic()
+            .scale(INITIAL_SCALE)
+            .translate([state.width / 2, state.height / 2])
+            .clipAngle(90);
+    } else {
+        // Mercator projection, infinite drag
+        state.projection = d3.geoEquirectangular()
+            .scale(state.width / (2 * Math.PI))
+            .translate([state.width / 2, state.height / 2])
+            .rotate([state.rotate2D?.lon || 0, state.rotate2D?.lat || 0]);
+        // Store rotation state for 2D
+        if (!state.rotate2D) state.rotate2D = { lon: 0, lat: 0 };
+    }
+    state.path = d3.geoPath().projection(state.projection);
+    state.globe = state.svg.append('g');
+
+    if (state.mapView === 'globe') {
+        state.svg.append('defs').append('clipPath')
+            .attr('id', 'globe-clip')
+            .append('circle')
+            .attr('cx', state.width / 2)
+            .attr('cy', state.height / 2)
+            .attr('r', state.projection.scale());
+    } else {
+        d3.select('#globe-clip').remove();
+    }
 }
 
 /* ───────────────────────── Globe ───────────────────────── */
@@ -416,11 +418,9 @@ function wireInteractions () {
 
         state.svg.call(state.zoom).on('dblclick.zoom', null);
 
-        addZoomButtons();
     } else {
         // Infinite drag for 2D map with correct direction and zoom
         let last = null;
-        addZoomButtons();
         state.zoom = d3.zoom()
             .filter(event => event.type === 'wheel')
             .scaleExtent([0.5, 10])
@@ -492,19 +492,29 @@ function stopAnimation () {
     document.getElementById('play-button').textContent = '▶ Play';
 }
 
-/* ───────────────────────── Earthquakes ───────────────────────── */
-function updateEarthquakes () {
+/* ───────────────────────── Get Filtered Earthquake Data ───────────────────────── */
+function getFilteredEarthquakeData() {
+    // Returns the currently filtered data (year, hazard, quantitative filters)
     const [start, end] = state.yearRange;
     let data = state.earthquakeData.filter(d => d.year >= start && d.year <= end);
     if (state.filters.tsunami) data = data.filter(d => d.tsunami);
     if (state.filters.volcano) data = data.filter(d => d.volcano);
     if (state.filters.noHazard) data = data.filter(d => !d.tsunami && !d.volcano);
-    // Quantitative filters
     Q_FIELDS.forEach(key => {
         const [min, max] = state.filters[key].current;
         data = data.filter(d => d[key] >= min && d[key] <= max);
     });
+    return data;
+}
 
+/* ───────────────────────── Earthquakes ───────────────────────── */
+function updateEarthquakes () {
+    let data;
+    if (state.regionBrush && state.regionBrush.filteredData) {
+        data = state.regionBrush.filteredData;
+    } else {
+        data = getFilteredEarthquakeData();
+    }
     state.globe.selectAll('.earthquake-container').remove();
     const g = state.globe.append('g').attr('class', 'earthquake-container');
     if (state.mapView === 'globe') {
@@ -619,21 +629,17 @@ function initBarChart () {
 function updateBarChart () {
     const [start, end] = state.yearRange;
     const metricKey = state.selectedBarMetric;
-    // Filter by year range and any filters (tsunami/volcano)
-    let filteredData = state.earthquakeData.filter(d => d.year >= start && d.year <= end);
-    if (state.filters.tsunami) filteredData = filteredData.filter(d => d.tsunami);
-    if (state.filters.volcano) filteredData = filteredData.filter(d => d.volcano);
-    if (state.filters.noHazard) filteredData = filteredData.filter(d => !d.tsunami && !d.volcano);
-    // Quantitative filters
-    Q_FIELDS.forEach(key => {
-        const [min, max] = state.filters[key].current;
-        filteredData = filteredData.filter(d => d[key] >= min && d[key] <= max);
-    });
+    let data;
+    if (state.regionBrush && state.regionBrush.filteredData) {
+        data = state.regionBrush.filteredData;
+    } else {
+        data = getFilteredEarthquakeData();
+    }
 
     // Aggregate selected metric per year per magnitude bin
-    const data = [];
+    const dataAgg = [];
     for (let year = start; year <= end; year++) {
-        const yearData = filteredData.filter(d => d.year === year);
+        const yearData = data.filter(d => d.year === year);
         const bins = { year };
         MAG_BINS.forEach(bin => bins[bin.key] = 0);
         yearData.forEach(d => {
@@ -654,23 +660,23 @@ function updateBarChart () {
             }
             bins[bin] += value;
         });
-        data.push(bins);
+        dataAgg.push(bins);
     }
 
-    state.bar.x.domain(data.map(d => d.year));
+    state.bar.x.domain(dataAgg.map(d => d.year));
     // Y domain: max total for selected metric in any year
-    state.bar.y.domain([0, d3.max(data, d => MAG_BINS.reduce((sum, bin) => sum + d[bin.key], 0)) || 0]);
+    state.bar.y.domain([0, d3.max(dataAgg, d => MAG_BINS.reduce((sum, bin) => sum + d[bin.key], 0)) || 0]);
 
     // Axes
     state.bar.xAxis.transition().duration(500).call(
         d3.axisBottom(state.bar.x).tickValues(
-            state.bar.x.domain().filter((_, i) => i % Math.ceil(data.length / 10) === 0)
+            state.bar.x.domain().filter((_, i) => i % Math.ceil(dataAgg.length / 10) === 0)
         ));
     state.bar.yAxis.transition().duration(500).call(d3.axisLeft(state.bar.y));
 
     // Stack data
     const stack = d3.stack().keys(MAG_BINS.map(b => b.key));
-    const series = stack(data);
+    const series = stack(dataAgg);
 
     // Remove old bars
     state.bar.svg.selectAll('.bar-group').remove();
@@ -766,16 +772,12 @@ function updateTopBarChart() {
     const [start, end] = state.yearRange;
     const metricKey = state.selectedBarMetric;
     const topX = parseInt(document.getElementById('top-x-input').value) || 10;
-    // Filter by year range and any filters
-    let data = state.earthquakeData.filter(d => d.year >= start && d.year <= end);
-    if (state.filters.tsunami) data = data.filter(d => d.tsunami);
-    if (state.filters.volcano) data = data.filter(d => d.volcano);
-    if (state.filters.noHazard) data = data.filter(d => !d.tsunami && !d.volcano);
-    // Quantitative filters
-    Q_FIELDS.forEach(key => {
-        const [min, max] = state.filters[key].current;
-        data = data.filter(d => d[key] >= min && d[key] <= max);
-    });
+    let data;
+    if (state.regionBrush && state.regionBrush.filteredData) {
+        data = state.regionBrush.filteredData.slice();
+    } else {
+        data = getFilteredEarthquakeData();
+    }
     // Sort by selected metric
     data = data.slice(); // copy
     if (metricKey === 'count') {
@@ -903,3 +905,142 @@ window.addEventListener('resize', debounce(() => {
     initTopBarChart();
     updateTopBarChart();
 }, 150));
+
+/* ───────────────────────── Region Selection Brush ───────────────────────── */
+
+// Add to state: region selection
+state.regionBrush = {
+    active: false,
+    selection: null,
+    filteredData: null,
+    state: 'idle' // 'idle' | 'select' | 'selecting' | 'done'
+};
+
+function setRegionBrushState(newState) {
+    state.regionBrush.state = newState;
+    const btn = document.getElementById('select-region-btn');
+    if (!btn) return;
+    btn.classList.remove('active', 'selecting', 'done');
+    switch (newState) {
+        case 'select':
+            btn.textContent = 'Click and drag to select';
+            btn.classList.add('active');
+            break;
+        case 'selecting':
+            btn.textContent = 'Selecting...';
+            btn.classList.add('selecting');
+            break;
+        case 'done':
+            btn.textContent = 'Selection done (Click to clear)';
+            btn.classList.add('done');
+            break;
+        default:
+            btn.textContent = 'Select Region';
+    }
+}
+
+// --- Brush logic ---
+function enableRegionBrush() {
+    if (state.regionBrush.g) state.regionBrush.g.remove();
+    const svg = state.svg;
+    const brush = d3.brush()
+        .extent([[0, 0], [state.width, state.height]])
+        .on('start', brushStarted)
+        .on('brush', brushed)
+        .on('end', brushEnded);
+    state.regionBrush.g = svg.append('g').attr('class', 'region-brush').call(brush);
+    state.regionBrush.brush = brush;
+    svg.style('cursor', 'crosshair');
+    setRegionBrushState('select');
+    disableMapInteractions();
+}
+
+function disableRegionBrush() {
+    if (state.regionBrush.g) state.regionBrush.g.remove();
+    state.regionBrush.active = false;
+    state.regionBrush.selection = null;
+    state.regionBrush.filteredData = null;
+    setRegionBrushState('idle');
+    state.svg.style('cursor', state.mapView === 'globe' ? 'grab' : 'default');
+    enableMapInteractions();
+    updateEarthquakes();
+    updateAllBarCharts();
+}
+
+function brushStarted(event) {
+    setRegionBrushState('selecting');
+}
+
+function brushed(event) {
+    // Highlight the brush rectangle (default d3.brush style is fine)
+}
+
+function brushEnded(event) {
+    if (!event.selection) {
+        // Brush cleared
+        disableRegionBrush();
+        return;
+    }
+    const [[x0, y0], [x1, y1]] = event.selection;
+    // Project all earthquakes to x/y and filter those inside
+    let data = getFilteredEarthquakeData();
+    const selected = data.filter(d => {
+        let coords = state.projection([d.longitude, d.latitude]);
+        if (!coords) return false;
+        const [x, y] = coords;
+        return x >= x0 && x <= x1 && y >= y0 && y <= y1;
+    });
+    state.regionBrush.selection = event.selection;
+    state.regionBrush.filteredData = selected;
+    setRegionBrushState('done');
+    state.regionBrush.active = true;
+    state.svg.style('cursor', 'default');
+    enableMapInteractions(); // allow map interaction after selection is done
+    updateEarthquakes();
+    updateAllBarCharts();
+}
+
+function disableMapInteractions() {
+    // Remove drag/zoom handlers
+    if (state.svg) {
+        state.svg.on('.zoom', null);
+        state.svg.on('.drag', null);
+        state.svg.on('mousedown.zoom', null);
+        state.svg.on('mousemove.zoom', null);
+        state.svg.on('mouseup.zoom', null);
+        state.svg.on('touchstart.zoom', null);
+        state.svg.on('touchmove.zoom', null);
+        state.svg.on('touchend.zoom', null);
+        state.svg.on('wheel.zoom', null);
+        state.svg.on('dblclick.zoom', null);
+    }
+}
+
+function enableMapInteractions() {
+    // Re-wire interactions
+    wireInteractions();
+}
+
+// --- Button wiring ---
+document.addEventListener('DOMContentLoaded', () => {
+    const btn = document.getElementById('select-region-btn');
+    if (!btn) return;
+    setRegionBrushState('idle');
+    btn.onclick = function(e) {
+        if (state.regionBrush.state === 'idle') {
+            state.regionBrush.active = true;
+            enableRegionBrush();
+        } else if (state.regionBrush.state === 'done') {
+            disableRegionBrush();
+        }
+        // If selecting, ignore click
+    };
+    // Cancel brush on click outside SVG
+    document.addEventListener('mousedown', function(ev) {
+        if (!state.regionBrush.active) return;
+        const svgNode = state.svg.node();
+        if (!svgNode.contains(ev.target) && ev.target !== btn) {
+            disableRegionBrush();
+        }
+    });
+});
