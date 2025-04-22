@@ -49,7 +49,7 @@ const state = {
     slider: null,
     filters: { tsunami: false, volcano: false, noHazard: false },
     bar: {},
-    mapView: 'globe' // 'globe' or 'map'
+    mapView: 'map' // 'globe' or 'map'
 };
 
 /* ───────────────────────── Helpers ───────────────────────── */
