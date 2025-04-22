@@ -73,6 +73,7 @@ document.addEventListener('DOMContentLoaded', init);
 async function init () {
     buildSvg();
     await loadEarthquakeData();
+    state.faultLines = await d3.json('https://raw.githubusercontent.com/fraxen/tectonicplates/master/GeoJSON/PB2002_boundaries.json'); // <-- load tectonic fault lines
     initializeQuantitativeFilters(); // <-- initialize quantitative filter ranges
     await drawGlobe();
     buildYearSlider();
@@ -212,6 +213,23 @@ async function drawGlobe () {
     .enter().append('path')
     .attr('class', 'country')
     .attr('d', state.path);
+
+    // Draw fault lines
+    state.globe.append('g')
+    .attr('class', 'fault-lines')
+    .selectAll('path')
+    .data(state.faultLines.features)
+    .enter().append('path')
+    .attr('d', state.path)
+    .attr('fill', 'none')
+    .attr('stroke', '#9933CC')
+    .attr('stroke-width', 1)
+    .attr('stroke-dasharray', '4 2')
+    .attr('opacity', 0.7);
+
+    if (state.mapView === 'globe') {
+    state.globe.select('.fault-lines').attr('clip-path', 'url(#globe-clip)');
+    }
 
     if (state.mapView === 'globe') {
         // Sphere outline for globe only
@@ -461,7 +479,7 @@ function wireInteractions () {
 }
 
 function redrawGlobe () {
-    d3.selectAll('.country, .graticule, .sphere').attr('d', state.path);
+    d3.selectAll('.country, .graticule, .sphere, .fault-lines path').attr('d', state.path);
     updateEarthquakePositions();
 }
 
