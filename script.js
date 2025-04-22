@@ -319,13 +319,16 @@ function wireInteractions () {
             .scaleExtent([0.5, 10])
             .on('zoom', function(event) {
                 state.currentZoom = event.transform.k;
+                // Keep the current y translation when zooming
+                const currentTranslate = state.projection.translate();
                 state.projection
                     .scale((state.width / (2 * Math.PI)) * state.currentZoom)
-                    .translate([state.width / 2, state.height / 2]);
+                    .translate([state.width / 2, currentTranslate[1]]);
                 redrawGlobe();
             });
+
         state.svg.call(state.zoom);
-        // Attach drag to SVG for panning the projection
+        // Attach drag to SVG for panning (y) and rotating (x) the projection
         state.svg.call(
             d3.drag()
                 .on('start', function(event) {
@@ -336,12 +339,14 @@ function wireInteractions () {
                     const dx = event.x - last.x;
                     const dy = event.y - last.y;
                     last = { x: event.x, y: event.y };
+                    // Horizontal drag changes longitude (rotation)
                     const scale = state.projection.scale();
                     const dLon = dx / scale * 180 / Math.PI;
-                    const dLat = -dy / scale * 90 / (state.height / 2);
-                    state.rotate2D.lat = Math.max(-85, Math.min(85, state.rotate2D.lat + dLat));
                     state.rotate2D.lon = ((state.rotate2D.lon + dLon + 540) % 360) - 180;
-                    state.projection.rotate([state.rotate2D.lon, state.rotate2D.lat]);
+                    // Vertical drag pans (slides) the map (translate y)
+                    const currentTranslate = state.projection.translate();
+                    state.projection.translate([currentTranslate[0], currentTranslate[1] + dy]);
+                    state.projection.rotate([state.rotate2D.lon, 0]);
                     redrawGlobe();
                 })
         ).style('cursor', 'grab');
