@@ -25,6 +25,10 @@ const BAR_METRICS = [
     { key: 'housesDamaged', label: 'Houses Damaged' },
 ];
 
+const Q_FIELDS = [
+    'magnitude', 'depth', 'deaths', 'missing', 'injuries', 'damage', 'housesDestroyed', 'housesDamaged'
+];
+
 /* ───────────────────────── State ───────────────────────── */
 const state = {
     width: WIDTH,
@@ -43,7 +47,7 @@ const state = {
     isAnimating: false,
     animationTimer: null,
     slider: null,
-    filters: { tsunami: false, volcano: false },
+    filters: { tsunami: false, volcano: false, noHazard: false },
     bar: {},
     mapView: 'globe' // 'globe' or 'map'
 };
@@ -69,6 +73,7 @@ document.addEventListener('DOMContentLoaded', init);
 async function init () {
     buildSvg();
     await loadEarthquakeData();
+    initializeQuantitativeFilters(); // <-- initialize quantitative filter ranges
     await drawGlobe();
     buildYearSlider();
     wireInteractions();
@@ -162,12 +167,32 @@ async function loadEarthquakeData () {
     }));
 
     state.years = [...new Set(state.earthquakeData.map(d => d.year))].sort();
-    state.yearRange = [state.years[0], state.years[0]];
+    // Set default year range to the maximum
+    state.yearRange = [state.years[0], state.years[state.years.length - 1]];
 
     state.dataByYear = Array.from(
     d3.rollup(state.earthquakeData, v => d3.sum(v, d => d.deaths), d => d.year),
     ([year, earthquakeDeaths]) => ({ year, earthquakeDeaths })
     );
+}
+
+function initializeQuantitativeFilters() {
+    const fields = [
+        { key: 'magnitude', label: 'Magnitude' },
+        { key: 'depth', label: 'Focal Depth (km)' },
+        { key: 'deaths', label: 'Deaths' },
+        { key: 'missing', label: 'Missing' },
+        { key: 'injuries', label: 'Injuries' },
+        { key: 'damage', label: 'Damage ($Mil)' },
+        { key: 'housesDestroyed', label: 'Houses Destroyed' },
+        { key: 'housesDamaged', label: 'Houses Damaged' }
+    ];
+    fields.forEach(f => {
+        const values = state.earthquakeData.map(d => d[f.key]);
+        const min = Math.min(...values);
+        const max = Math.max(...values);
+        state.filters[f.key] = { min, max, current: [min, max] };
+    });
 }
 
 /* ───────────────────────── Globe ───────────────────────── */
@@ -269,16 +294,98 @@ function addYearControls () {
 
     // Filters
     if (!document.getElementById('filter-controls')) {
-    controls.insertAdjacentHTML('beforeend', `
-        <div id="filter-controls" class="filter-controls">
-        <div class="filter-title">Associated Hazards:</div>
-        <label class="filter-checkbox"><input type="checkbox" id="tsunami-filter"> <span class="tsunami-icon">🌊</span> Tsunami</label>
-        <label class="filter-checkbox"><input type="checkbox" id="volcano-filter"> <span class="volcano-icon">🌋</span> Volcano</label>
-        </div>`);
+        controls.insertAdjacentHTML('beforeend', `
+            <div id="filter-controls" class="filter-controls">
+                <div class="filter-title">Associated Hazards:</div>
+                <label class="filter-checkbox"><input type="checkbox" id="tsunami-filter"> <span class="tsunami-icon">🌊</span> Tsunami</label>
+                <label class="filter-checkbox"><input type="checkbox" id="volcano-filter"> <span class="volcano-icon">🌋</span> Volcano</label>
+                <label class="filter-checkbox"><input type="checkbox" id="nohazard-filter"> <span class="nohazard-icon">🚫</span> None</label>
+                <div class="advanced-filters-container">
+                    <button id="advanced-filters-toggle" class="advanced-filters-toggle" aria-expanded="false">Advanced Filters ▼</button>
+                    <div id="advanced-filters-panel" class="advanced-filters-panel" style="display:none;">
+                        <div id="quantitative-filters" class="quantitative-filters"></div>
+                    </div>
+                </div>
+            </div>`);
     }
-
     document.getElementById('tsunami-filter').onchange = e => { state.filters.tsunami = e.target.checked; updateEarthquakes(); updateAllBarCharts(); };
     document.getElementById('volcano-filter').onchange = e => { state.filters.volcano = e.target.checked; updateEarthquakes(); updateAllBarCharts(); };
+    document.getElementById('nohazard-filter').onchange = e => { state.filters.noHazard = e.target.checked; updateEarthquakes(); updateAllBarCharts(); };
+    // Advanced filters toggle
+    const advToggle = document.getElementById('advanced-filters-toggle');
+    const advPanel = document.getElementById('advanced-filters-panel');
+    advToggle.onclick = function() {
+        const expanded = advPanel.style.display === 'block';
+        advPanel.style.display = expanded ? 'none' : 'block';
+        this.setAttribute('aria-expanded', !expanded);
+        this.textContent = expanded ? 'Advanced Filters ▼' : 'Advanced Filters ▲';
+        if (!expanded) addQuantitativeFilterSliders();
+    };
+    // Only render sliders if open by default (should be closed)
+}
+
+/* ───────────────────────── Quantitative Filter Sliders ───────────────────────── */
+function addQuantitativeFilterSliders() {
+    const container = document.getElementById('quantitative-filters');
+    if (!container || container.offsetParent === null) return; // Only render if visible
+    container.innerHTML = '';
+    // Add minimal section title (no 'Range')
+    const title = document.createElement('div');
+    title.className = 'quant-filters-title';
+    title.textContent = 'Filters';
+    container.appendChild(title);
+    const fields = [
+        { key: 'magnitude', label: 'Magnitude', step: 0.1 },
+        { key: 'depth', label: 'Focal Depth (km)', step: 1 },
+        { key: 'deaths', label: 'Deaths', step: 1 },
+        { key: 'missing', label: 'Missing', step: 1 },
+        { key: 'injuries', label: 'Injuries', step: 1 },
+        { key: 'damage', label: 'Damage ($Mil)', step: 1 },
+        { key: 'housesDestroyed', label: 'Houses Destroyed', step: 1 },
+        { key: 'housesDamaged', label: 'Houses Damaged', step: 1 }
+    ];
+    fields.forEach(f => {
+        const filter = state.filters[f.key];
+        const min = filter.min;
+        const max = filter.max;
+        const [curMin, curMax] = filter.current;
+        // Wrapper for label and slider (horizontal)
+        const wrapper = document.createElement('div');
+        wrapper.className = 'quant-filter-row';
+        // Label only (no min-max)
+        const labelWrap = document.createElement('div');
+        labelWrap.className = 'quant-label-wrap';
+        labelWrap.innerHTML = `<span class="quant-label">${f.label}</span>`;
+        wrapper.appendChild(labelWrap);
+        // Slider container
+        const sliderDiv = document.createElement('div');
+        sliderDiv.id = `${f.key}-slider-container`;
+        sliderDiv.className = 'quant-slider-container';
+        wrapper.appendChild(sliderDiv);
+        container.appendChild(wrapper);
+        // Create noUiSlider
+        noUiSlider.create(sliderDiv, {
+            start: [curMin, curMax],
+            connect: true,
+            range: { min, max },
+            step: f.step,
+            tooltips: [true, true],
+            format: {
+                to: v => (f.step < 1 ? (+v).toFixed(1) : Math.round(v)),
+                from: Number
+            }
+        });
+        // Update state and UI on slider change
+        sliderDiv.noUiSlider.on('update', (values) => {
+            const minVal = f.step < 1 ? +(+values[0]).toFixed(1) : Math.round(values[0]);
+            const maxVal = f.step < 1 ? +(+values[1]).toFixed(1) : Math.round(values[1]);
+            state.filters[f.key].current = [minVal, maxVal];
+        });
+        sliderDiv.noUiSlider.on('set', () => {
+            updateEarthquakes();
+            updateAllBarCharts();
+        });
+    });
 }
 
 /* ───────────────────────── Interactions (Drag, Zoom) ───────────────────────── */
@@ -289,8 +396,8 @@ function wireInteractions () {
         d3.drag()
             .on('start', stopAnimation)
             .on('drag', ({ dx, dy }) => {
-            const [λ, φ, γ] = state.projection.rotate();
-            state.rotate = [λ + dx * 0.25, Math.max(-90, Math.min(90, φ - dy * 0.25)), γ];
+            const [x, y, z] = state.projection.rotate();
+            state.rotate = [x + dx * 0.25, Math.max(-90, Math.min(90, y - dy * 0.25)), z];
             state.projection.rotate(state.rotate);
             redrawGlobe();
             })
@@ -391,6 +498,12 @@ function updateEarthquakes () {
     let data = state.earthquakeData.filter(d => d.year >= start && d.year <= end);
     if (state.filters.tsunami) data = data.filter(d => d.tsunami);
     if (state.filters.volcano) data = data.filter(d => d.volcano);
+    if (state.filters.noHazard) data = data.filter(d => !d.tsunami && !d.volcano);
+    // Quantitative filters
+    Q_FIELDS.forEach(key => {
+        const [min, max] = state.filters[key].current;
+        data = data.filter(d => d[key] >= min && d[key] <= max);
+    });
 
     state.globe.selectAll('.earthquake-container').remove();
     const g = state.globe.append('g').attr('class', 'earthquake-container');
@@ -510,6 +623,13 @@ function updateBarChart () {
     let filteredData = state.earthquakeData.filter(d => d.year >= start && d.year <= end);
     if (state.filters.tsunami) filteredData = filteredData.filter(d => d.tsunami);
     if (state.filters.volcano) filteredData = filteredData.filter(d => d.volcano);
+    if (state.filters.noHazard) filteredData = filteredData.filter(d => !d.tsunami && !d.volcano);
+    // Quantitative filters
+    Q_FIELDS.forEach(key => {
+        const [min, max] = state.filters[key].current;
+        filteredData = filteredData.filter(d => d[key] >= min && d[key] <= max);
+    });
+
     // Aggregate selected metric per year per magnitude bin
     const data = [];
     for (let year = start; year <= end; year++) {
@@ -648,6 +768,12 @@ function updateTopBarChart() {
     let data = state.earthquakeData.filter(d => d.year >= start && d.year <= end);
     if (state.filters.tsunami) data = data.filter(d => d.tsunami);
     if (state.filters.volcano) data = data.filter(d => d.volcano);
+    if (state.filters.noHazard) data = data.filter(d => !d.tsunami && !d.volcano);
+    // Quantitative filters
+    Q_FIELDS.forEach(key => {
+        const [min, max] = state.filters[key].current;
+        data = data.filter(d => d[key] >= min && d[key] <= max);
+    });
     // Sort by selected metric
     data = data.slice(); // copy
     data.sort((a, b) => {

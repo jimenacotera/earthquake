@@ -412,3 +412,86 @@ h1 {
   fill: #333;
 }
 
+/* Advanced Filters Collapsible Panel - Minimalist */
+.advanced-filters-container {
+    margin-top: 16px;
+    border-radius: 0;
+    background: none;
+    box-shadow: none;
+    padding: 0;
+}
+.advanced-filters-toggle {
+    width: 100%;
+    background: none;
+    color: #217dbb;
+    border: none;
+    border-radius: 0;
+    padding: 8px 0 8px 0;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    outline: none;
+    transition: color 0.2s;
+    text-align: left;
+    position: relative;
+}
+.advanced-filters-toggle[aria-expanded="true"] {
+    color: #145a8a;
+    background: none;
+}
+.advanced-filters-panel {
+    padding: 0 0 0 0;
+    border: none;
+    background: none;
+    border-radius: 0;
+    animation: fadeIn 0.2s;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* Minimal quantitative filter section */
+.quant-filters-title {
+    font-size: 13px;
+    font-weight: 600;
+    color: #444;
+    margin-bottom: 8px;
+    letter-spacing: 0.02em;
+    padding-left: 2px;
+}
+.quantitative-filters {
+    display: flex;
+    flex-direction: column;
+    gap: 40px;
+    padding: 0;
+}
+.quant-filter-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 0;
+}
+.quant-label-wrap {
+    min-width: 140px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #444;
+    font-weight: 400;
+}
+.quant-label {
+    font-weight: 500;
+    color: #333;
+    margin-right: 2px;
+}
+.quant-minmax {
+    color: #888;
+    font-size: 11px;
+}
+.quant-slider-container {
+    flex: 1;
+    margin: 0;
+}
+
