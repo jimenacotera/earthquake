@@ -271,7 +271,7 @@ function addYearControls () {
     if (!document.getElementById('filter-controls')) {
     controls.insertAdjacentHTML('beforeend', `
         <div id="filter-controls" class="filter-controls">
-        <div class="filter-title">Event Filters:</div>
+        <div class="filter-title">Associated Hazards:</div>
         <label class="filter-checkbox"><input type="checkbox" id="tsunami-filter"> <span class="tsunami-icon">🌊</span> Tsunami</label>
         <label class="filter-checkbox"><input type="checkbox" id="volcano-filter"> <span class="volcano-icon">🌋</span> Volcano</label>
         </div>`);
