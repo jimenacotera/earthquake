@@ -752,12 +752,14 @@ function initTopBarChart() {
         .attr('transform', `translate(0,${state.topBar.height})`);
     state.topBar.yAxis = state.topBar.svg.append('g').attr('class', 'axis y-axis');
 
-    // Set y-axis label to selected metric
-    const metricLabel = BAR_METRICS.find(m => m.key === state.selectedBarMetric)?.label || 'Deaths';
+    // Set y-axis label to selected metric, but if metric is 'count', label as 'Magnitude'
+    let yLabel = BAR_METRICS.find(m => m.key === state.selectedBarMetric)?.label || 'Deaths';
+    if (state.selectedBarMetric === 'count') yLabel = 'Magnitude';
+    state.topBar.svg.selectAll('.axis-label').remove();
     state.topBar.svg.append('text').attr('class', 'axis-label')
         .attr('transform', 'rotate(-90)')
         .attr('x', -state.topBar.height / 2).attr('y', -55)
-        .attr('text-anchor', 'middle').text(metricLabel);
+        .attr('text-anchor', 'middle').text(yLabel);
 }
 
 function updateTopBarChart() {
@@ -776,16 +778,16 @@ function updateTopBarChart() {
     });
     // Sort by selected metric
     data = data.slice(); // copy
-    data.sort((a, b) => {
-        let va, vb;
-        if (metricKey === 'count') {
-            va = 1; vb = 1;
-        } else {
-            va = getMetricValue(a, metricKey);
-            vb = getMetricValue(b, metricKey);
-        }
-        return vb - va;
-    });
+    if (metricKey === 'count') {
+        // Sort by magnitude descending for 'Number of Earthquakes'
+        data.sort((a, b) => b.magnitude - a.magnitude);
+    } else {
+        data.sort((a, b) => {
+            let va = getMetricValue(a, metricKey);
+            let vb = getMetricValue(b, metricKey);
+            return vb - va;
+        });
+    }
     data = data.slice(0, topX);
 
     // X: label (location only, but unique for domain)
@@ -798,7 +800,12 @@ function updateTopBarChart() {
     }
     // For axis label, just show the short location
     state.topBar.x.domain(data.map(getDomainKey));
-    state.topBar.y.domain([0, d3.max(data, d => metricKey === 'count' ? 1 : getMetricValue(d, metricKey)) || 0]);
+    // Change y-axis: if metric is 'count', y is magnitude, else as before
+    if (metricKey === 'count') {
+        state.topBar.y.domain([0, d3.max(data, d => d.magnitude) || 0]);
+    } else {
+        state.topBar.y.domain([0, d3.max(data, d => getMetricValue(d, metricKey)) || 0]);
+    }
 
     // Axes
     state.topBar.yAxis.transition().duration(500).call(d3.axisLeft(state.topBar.y));
@@ -812,9 +819,9 @@ function updateTopBarChart() {
         .enter().append('rect')
         .attr('class', 'top-bar')
         .attr('x', (d, i) => state.topBar.x(getDomainKey(d, i)))
-        .attr('y', d => state.topBar.y(metricKey === 'count' ? 1 : getMetricValue(d, metricKey)))
+        .attr('y', d => metricKey === 'count' ? state.topBar.y(d.magnitude) : state.topBar.y(getMetricValue(d, metricKey)))
         .attr('width', state.topBar.x.bandwidth())
-        .attr('height', d => state.topBar.height - state.topBar.y(metricKey === 'count' ? 1 : getMetricValue(d, metricKey)))
+        .attr('height', d => metricKey === 'count' ? state.topBar.height - state.topBar.y(d.magnitude) : state.topBar.height - state.topBar.y(getMetricValue(d, metricKey)))
         .attr('fill', '#3498db')
         .attr('fill-opacity', 0.8)
         .on('mouseover', function(event, d) {
