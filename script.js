@@ -851,10 +851,59 @@ function updateTopBarChart() {
                 .style('top', event.pageY + 10 + 'px')
                 .style('opacity', 1);
             d3.select(this).attr('fill-opacity', 1);
+
+            // Animate/enlarge and pulsate corresponding earthquake marker on the map
+            d3.selectAll('.earthquake')
+                .filter(q =>
+                    q.year === d.year &&
+                    Math.abs(q.magnitude - d.magnitude) < 0.01 &&
+                    Math.abs(q.latitude - d.latitude) < 0.01 &&
+                    Math.abs(q.longitude - d.longitude) < 0.01
+                )
+                .each(function(q) {
+                    const circle = d3.select(this).select('circle');
+                    let baseR = getRadius(q.magnitude);
+                    let growR = baseR * 2;
+                    let t = 0;
+                    // Store interval id on DOM node for cleanup
+                    if (this._pulseInterval) clearInterval(this._pulseInterval);
+                    this._pulseInterval = setInterval(() => {
+                        t += 0.15;
+                        let r = baseR + Math.abs(Math.sin(t)) * (growR - baseR);
+                        circle
+                            .attr('r', r)
+                            .attr('fill-opacity', 1)
+                            .attr('stroke', '#FFD700')
+                            .attr('stroke-width', 3);
+                    }, 30);
+                })
+                .raise();
         })
-        .on('mouseout', function(event) {
+        .on('mouseout', function(event, d) {
             tooltip.style('opacity', 0);
             d3.select(this).attr('fill-opacity', 0.8);
+
+            // Revert earthquake marker animation and stop pulsating
+            d3.selectAll('.earthquake')
+                .filter(q =>
+                    q.year === d.year &&
+                    Math.abs(q.magnitude - d.magnitude) < 0.01 &&
+                    Math.abs(q.latitude - d.latitude) < 0.01 &&
+                    Math.abs(q.longitude - d.longitude) < 0.01
+                )
+                .each(function(q) {
+                    if (this._pulseInterval) {
+                        clearInterval(this._pulseInterval);
+                        this._pulseInterval = null;
+                    }
+                    d3.select(this).select('circle')
+                        .transition()
+                        .duration(200)
+                        .attr('r', getRadius(q.magnitude))
+                        .attr('fill-opacity', 0.7)
+                        .attr('stroke', '#fff')
+                        .attr('stroke-width', 0.5);
+                });
         });
 
     // Add x-axis labels (rotated)
