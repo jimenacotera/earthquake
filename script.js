@@ -23,6 +23,7 @@ const BAR_METRICS = [
     { key: 'damage', label: 'Damage ($Mil)' },
     { key: 'housesDestroyed', label: 'Houses Destroyed' },
     { key: 'housesDamaged', label: 'Houses Damaged' },
+    { key: 'magnitude', label: 'Magnitude' }
 ];
 
 const Q_FIELDS = [
@@ -79,11 +80,13 @@ async function init () {
     buildYearSlider();
     wireInteractions();
     populateBarMetricDropdown();
+    populateScatterMetricDropdowns();
     initBarChart();
     updateBarChart();
     wireTopXInput();
     initTopBarChart();
     updateTopBarChart();
+    initScatterPlot();
     updateEarthquakes();
     wireMapViewSelect();
     addZoomButtons();
@@ -259,6 +262,217 @@ function addZoomButtons () {
         
         if (idx === 0) wrap.append('div').attr('class', 'zoom-separator');
     });
+}
+
+/* ───────────────────────── Scatter Plot ───────────────────────── */
+
+function populateScatterMetricDropdowns() {
+    const xSelect = document.getElementById('scatter-x-metric-select');
+    const ySelect = document.getElementById('scatter-y-metric-select');
+    xSelect.innerHTML = '';
+    ySelect.innerHTML = '';
+    // Exclude "count" for both axes
+    let metricOptions = BAR_METRICS.filter(m => m.key !== 'count');
+    // Ensure "magnitude" is present as an option
+    if (!metricOptions.some(m => m.key === 'magnitude')) {
+        metricOptions = [
+            { key: 'magnitude', label: 'Magnitude' },
+            ...metricOptions
+        ];
+    }
+    // For x-axis: all except "count"
+    metricOptions.forEach(metric => {
+        const xOption = document.createElement('option');
+        xOption.value = metric.key;
+        xOption.textContent = metric.label;
+        xSelect.appendChild(xOption);
+    });
+    // For y-axis: all except "count"
+    metricOptions.forEach(metric => {
+        const yOption = document.createElement('option');
+        yOption.value = metric.key;
+        yOption.textContent = metric.label;
+        ySelect.appendChild(yOption);
+    });
+    // Set defaults explicitly after options are added
+    xSelect.value = 'magnitude';
+    ySelect.value = 'deaths';
+    state.selectedScatterXMetric = 'magnitude';
+    state.selectedScatterYMetric = 'deaths';
+
+    xSelect.onchange = function() {
+        state.selectedScatterXMetric = this.value;
+        updateScatterPlot();
+    };
+    ySelect.onchange = function() {
+        state.selectedScatterYMetric = this.value;
+        updateScatterPlot();
+    };
+}
+
+function initScatterPlot() {
+    updateScatterPlot();
+    // Wire up both dropdowns
+    document.getElementById('scatter-x-metric-select').addEventListener('change', updateScatterPlot);
+    document.getElementById('scatter-y-metric-select').addEventListener('change', updateScatterPlot);
+}
+
+function updateScatterPlot() {
+    const container = d3.select('#scatter-plot-container');
+    container.selectAll('*').remove();
+
+    const margin = { top: 30, right: 30, bottom: 60, left: 70 };
+    const containerNode = container.node();
+    const fullWidth = containerNode ? containerNode.clientWidth : 400;
+    const fullHeight = containerNode ? containerNode.clientHeight : 340;
+    const width = fullWidth - margin.left - margin.right;
+    const height = fullHeight - margin.top - margin.bottom;
+
+    const svg = container.append('svg')
+        .attr('width', '100%')
+        .attr('height', '100%')
+        .attr('viewBox', `0 0 ${fullWidth} ${fullHeight}`)
+        .attr('preserveAspectRatio', 'none')
+        .append('g')
+        .attr('transform', `translate(${margin.left},${margin.top})`);
+
+    // Get selected metrics
+    const xMetric = document.getElementById('scatter-x-metric-select').value;
+    const yMetric = document.getElementById('scatter-y-metric-select').value;
+
+    // Filter data by year range and other filters
+    const data = getFilteredEarthquakeData();
+
+    // Remove points with missing x or y
+    const filtered = data.filter(d =>
+        typeof d[xMetric] === 'number' && !isNaN(d[xMetric]) &&
+        typeof d[yMetric] === 'number' && !isNaN(d[yMetric])
+    );
+
+    // X scale
+    const x = d3.scaleLinear()
+        .domain(d3.extent(filtered, d => d[xMetric])).nice()
+        .range([0, width]);
+    // Y scale
+    const y = d3.scaleLinear()
+        .domain(d3.extent(filtered, d => d[yMetric])).nice()
+        .range([height, 0]);
+
+    // X axis
+    svg.append('g')
+        .attr('transform', `translate(0,${height})`)
+        .call(d3.axisBottom(x));
+    // Y axis
+    svg.append('g')
+        .call(d3.axisLeft(y));
+
+    // Axis labels
+    const xLabel = BAR_METRICS.find(m => m.key === xMetric)?.label || xMetric;
+    const yLabel = BAR_METRICS.find(m => m.key === yMetric)?.label || yMetric;
+
+    svg.append('text')
+        .attr('class', 'axis-label')
+        .attr('x', width / 2)
+        .attr('y', height + 45)
+        .attr('text-anchor', 'middle')
+        .text(xLabel);
+
+    svg.append('text')
+        .attr('class', 'axis-label')
+        .attr('transform', 'rotate(-90)')
+        .attr('x', -height / 2)
+        .attr('y', -50)
+        .attr('text-anchor', 'middle')
+        .text(yLabel);
+
+    // Points
+    svg.selectAll('circle')
+        .data(filtered)
+        .enter()
+        .append('circle')
+        .attr('cx', d => x(d[xMetric]))
+        .attr('cy', d => y(d[yMetric]))
+        .attr('r', 4)
+        .attr('fill', d => getColor(d.magnitude))
+        .attr('opacity', 0.7)
+        .on('mouseover', function(event, d) {
+            // Add thick black outline to scatter point
+            d3.select(this)
+                .attr('stroke', '#111')
+                .attr('stroke-width', 3);
+
+            // Pulsate corresponding earthquake marker on the map
+            d3.selectAll('.earthquake')
+                .filter(q =>
+                    q.year === d.year &&
+                    Math.abs(q.magnitude - d.magnitude) < 0.01 &&
+                    Math.abs(q.latitude - d.latitude) < 0.01 &&
+                    Math.abs(q.longitude - d.longitude) < 0.01
+                )
+                .each(function(q) {
+                    const circle = d3.select(this).select('circle');
+                    let baseR = getRadius(q.magnitude);
+                    let growR = baseR * 2;
+                    let t = 0;
+                    if (this._pulseInterval) clearInterval(this._pulseInterval);
+                    this._pulseInterval = setInterval(() => {
+                        t += 0.15;
+                        let r = baseR + Math.abs(Math.sin(t)) * (growR - baseR);
+                        circle
+                            .attr('r', r)
+                            .attr('fill-opacity', 1)
+                            .attr('stroke', '#FFD700')
+                            .attr('stroke-width', 3);
+                    }, 30);
+                })
+                .raise();
+
+            tooltip.transition().duration(150).style('opacity', 1);
+            tooltip.html(
+                `<strong>Year:</strong> ${d.year}<br>
+                 <strong>Location:</strong> ${d.location}<br>
+                 <strong>${xLabel}:</strong> ${d[xMetric]}<br>
+                 <strong>${yLabel}:</strong> ${d[yMetric]}<br>
+                 <strong>Magnitude:</strong> ${d.magnitude}`
+            )
+            .style('left', (event.pageX + 12) + 'px')
+            .style('top', (event.pageY - 28) + 'px');
+        })
+        .on('mouseout', function(event, d) {
+            // Remove outline from scatter point
+            d3.select(this)
+                .attr('stroke', null)
+                .attr('stroke-width', null);
+
+            // Stop pulsating on the map marker
+            d3.selectAll('.earthquake')
+                .filter(q =>
+                    q.year === d.year &&
+                    Math.abs(q.magnitude - d.magnitude) < 0.01 &&
+                    Math.abs(q.latitude - d.latitude) < 0.01 &&
+                    Math.abs(q.longitude - d.longitude) < 0.01
+                )
+                .each(function(q) {
+                    if (this._pulseInterval) {
+                        clearInterval(this._pulseInterval);
+                        this._pulseInterval = null;
+                    }
+                    d3.select(this).select('circle')
+                        .transition()
+                        .duration(200)
+                        .attr('r', getRadius(q.magnitude))
+                        .attr('fill-opacity', 0.7)
+                        .attr('stroke', '#fff')
+                        .attr('stroke-width', 0.5);
+                });
+
+            tooltip.transition().duration(200).style('opacity', 0);
+        });
+}
+
+// Update scatter plot when filters or year range change
+function updateScatterPlotOnDataChange() {
+    updateScatterPlot();
 }
 
 /* ───────────────────────── Year Slider & Controls ───────────────────────── */
@@ -560,6 +774,7 @@ function updateEarthquakes () {
 
     updateEarthquakePositions();
     updateAllBarCharts();
+    updateScatterPlotOnDataChange();
 }
 
 function updateEarthquakePositions () {
@@ -951,6 +1166,7 @@ function updateAllBarCharts() {
     updateBarChart();
     initTopBarChart();
     updateTopBarChart();
+    updateScatterPlotOnDataChange();
 }
 
 /* ───────────────────────── Responsive ───────────────────────── */

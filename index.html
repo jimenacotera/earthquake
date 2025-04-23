@@ -44,33 +44,53 @@
                 </div>
             </div>
         </div>
-        <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
-            <button id="select-region-btn" class="control-button" type="button">Select Region</button>
-            <label for="map-view-select"><strong>Earthquake occurrences by location:</strong></label>
-            <select id="map-view-select">
-                <option value="globe">3D Globe</option>
-                <option value="map">2D Map</option>
-            </select>
+        <!-- ROW 1: Map and Scatter Plot Side by Side -->
+        <div class="row-flex">
+            <div class="map-panel chart-cell">
+                <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
+                    <button id="select-region-btn" class="control-button" type="button">Select Region</button>
+                    <label for="map-view-select"><strong>Earthquake occurrences by location:</strong></label>
+                    <select id="map-view-select">
+                        <option value="globe">3D Globe</option>
+                        <option value="map">2D Map</option>
+                    </select>
+                </div>
+                <div id="visualization"></div>
+            </div>
+            <div class="scatter-panel chart-cell">
+                <div style="margin-bottom:10px; display: flex; gap: 12px; align-items: center;">
+                    <label for="scatter-x-metric-select"><strong>X-Axis Metric:</strong></label>
+                    <select id="scatter-x-metric-select"></select>
+                    <label for="scatter-y-metric-select" style="margin-left:16px;"><strong>Y-Axis Metric:</strong></label>
+                    <select id="scatter-y-metric-select"></select>
+                </div>
+                <div id="scatter-plot-container"></div>
+            </div>
         </div>
-        <div id="visualization"></div>
-        <div style="margin-bottom:10px">
-            <label for="bar-metric-select"><strong>Y-Axis Metric:</strong></label>
-            <select id="bar-metric-select"></select>
+        <!-- ROW 2: Bar Chart Full Width -->
+        <div class="row-full">
+            <div style="margin-bottom:10px">
+                <label for="bar-metric-select"><strong>Y-Axis Metric:</strong></label>
+                <select id="bar-metric-select"></select>
+            </div>
+            <div id="bar-chart-container" class="chart-cell"></div>
         </div>
-        <div id="bar-chart-container"></div>
-        <div style="margin-bottom:10px">
-            <label for="top-x-input"><strong>Show Top</strong></label>
-            <input id="top-x-input" type="number" min="1" max="50" value="10" style="width:50px;"> <span id="top-x-label">Earthquakes</span>
+        <!-- ROW 3: Top Bar Chart Full Width -->
+        <div class="row-full">
+            <div style="margin-bottom:10px">
+                <label for="top-x-input"><strong>Show Top</strong></label>
+                <input id="top-x-input" type="number" min="1" max="50" value="10" style="width:50px;"> <span id="top-x-label">Earthquakes</span>
+            </div>
+            <div id="top-bar-chart-container" class="chart-cell"></div>
         </div>
-        <div id="top-bar-chart-container"></div>
-
+        <!-- Info Panel -->
         <div class="info-panel">
             <h3>Earthquake Information</h3>
             <div id="earthquake-info">
                 <p>Hover over an earthquake to see details</p>
             </div>
         </div>
+        <script src="script.js"></script>
     </div>
-    <script src="script.js"></script>
 </body>
 </html>
