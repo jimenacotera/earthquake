@@ -15,6 +15,36 @@
 <body>
     <div class="container">
         <h1>Global Earthquake Impact</h1>
+
+        <!-- ROW 1: Map and Scatter Plot Side by Side -->
+        <div class="row-flex">
+            <div class="map-panel chart-cell">
+                <div class="map-panel-container">
+                    <div class="map-panel-title"><h3>Seismic events by location</h3></div>
+                    <div>
+                        <label for="map-view-select">Select the region to display seismic events:</label>
+                        <button id="select-region-btn" class="control-button" type="button">Select Region</button>
+                    </div>
+                    <div>
+                        <label for="map-view-select">Select a world map view:</label>
+                        <select id="map-view-select">
+                            <option value="globe">3D Globe</option>
+                            <option value="map">2D Map</option>
+                        </select></div>
+                    
+                </div>
+                <div id="visualization"></div>
+            </div>
+            <div class="scatter-panel chart-cell">
+                <div style="margin-bottom:10px; display: flex; gap: 12px; align-items: center;">
+                    <label for="scatter-x-metric-select"><strong>X-Axis Metric:</strong></label>
+                    <select id="scatter-x-metric-select"></select>
+                    <label for="scatter-y-metric-select" style="margin-left:16px;"><strong>Y-Axis Metric:</strong></label>
+                    <select id="scatter-y-metric-select"></select>
+                </div>
+                <div id="scatter-plot-container"></div>
+            </div>
+        </div>
         <div class="controls">
             <div class="year-control">
                 <div class="year-display">
@@ -53,29 +83,7 @@
 
             </div>
         </div>
-        <!-- ROW 1: Map and Scatter Plot Side by Side -->
-        <div class="row-flex">
-            <div class="map-panel chart-cell">
-                <div style="margin-bottom:10px;display:flex;align-items:center;gap:10px">
-                    <button id="select-region-btn" class="control-button" type="button">Select Region</button>
-                    <label for="map-view-select"><strong>Earthquake occurrences by location:</strong></label>
-                    <select id="map-view-select">
-                        <option value="globe">3D Globe</option>
-                        <option value="map">2D Map</option>
-                    </select>
-                </div>
-                <div id="visualization"></div>
-            </div>
-            <div class="scatter-panel chart-cell">
-                <div style="margin-bottom:10px; display: flex; gap: 12px; align-items: center;">
-                    <label for="scatter-x-metric-select"><strong>X-Axis Metric:</strong></label>
-                    <select id="scatter-x-metric-select"></select>
-                    <label for="scatter-y-metric-select" style="margin-left:16px;"><strong>Y-Axis Metric:</strong></label>
-                    <select id="scatter-y-metric-select"></select>
-                </div>
-                <div id="scatter-plot-container"></div>
-            </div>
-        </div>
+
         <!-- ROW 2: Bar Chart Full Width -->
         <div class="row-full">
             <div style="margin-bottom:10px">
@@ -94,9 +102,10 @@
         </div>
         <!-- Info Panel -->
         <div class="info-panel">
-            <h3>Earthquake Information</h3>
+            <h3>User Information</h3>
             <div id="earthquake-info">
-                <p>Hover over an earthquake to see details</p>
+                <p>Hover over an earthquake to see details.</p>
+                <p>This visualisation was made possible thanks to seismic data from the <a href="https://www.ngdc.noaa.gov/hazel/view/hazards/earthquake/search">NOAA National Geophysical Data Center</a>.</p>
             </div>
         </div>
         <script src="script.js"></script>

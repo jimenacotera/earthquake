@@ -12,7 +12,7 @@ body {
 }
 
 h1 {
-    text-align: center;
+    text-align: left;
     color: #333;
 }
 
@@ -204,7 +204,7 @@ h1 {
 
 .control-button {
     padding: 8px 16px;
-    background-color: #3498db;
+    background-color: #3e4143;
     color: white;
     border: none;
     border-radius: 4px;
@@ -212,6 +212,7 @@ h1 {
     font-size: 14px;
     transition: background-color 0.3s;
     margin-bottom: 10px;
+    align-self: left;
 }
 
 .control-button:hover {
@@ -518,6 +519,20 @@ h1 {
     min-width: 0;
     flex-direction: column;
 }
+
+.map-panel-title {
+    width: 100%;
+    font-size: 20px;
+    align-items: center;
+}
+
+.map-panel-container{
+    margin-bottom:5px;
+    display:flex;
+    align-items:center;
+    gap:5px;
+}
+
 .scatter-panel {
     margin-left: 0;
     max-width: 40%;
@@ -530,15 +545,15 @@ h1 {
 }
 .chart-cell {
     background: #fff;
-    border-radius: 8px;
+    border-radius: 4px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     padding: 20px;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
     display: flex;
     justify-content: center;
     align-items: center;
     overflow: hidden;
-    min-height: 340px;
+    min-height: 240px;
     box-sizing: border-box;
     width: 100%;
 }
@@ -565,7 +580,7 @@ h1 {
     justify-content: center;
     align-items: center;
     overflow: hidden;
-    min-height: 340px;
+    min-height: 300px;
     box-sizing: border-box;
 }
 
