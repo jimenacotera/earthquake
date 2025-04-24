@@ -104,6 +104,7 @@ h1 {
     height: 12px;
     border-radius: 50%;
     margin-right: 5px;
+    box-sizing: border-box;
 }
 
 .small {
@@ -123,15 +124,21 @@ h1 {
 }
 
 .tsunami {
-    background-color: #00BFFF;
+    background-color: transparent;
+    border: 1.5px dashed #00BFFF;
 }
 
 .plates {
-    background-color: #9933CC;
-} 
+    display: inline-block;
+    height: 0;
+    border-top: 2px dashed #9933CC;
+    margin-right: 5px;
+    box-sizing: border-box;
+}
 
 .volcano {
-    background-color: #FF4500;
+    background-color: transparent;
+    border: 1.5px solid #FF4500;
 }
 
 #visualization {
