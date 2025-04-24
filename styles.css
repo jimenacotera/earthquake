@@ -509,9 +509,9 @@ h1 {
 /* Layout for new 3-row structure */
 .row-flex {
     display: flex;
-    gap: 24px;
+    gap: 12px;
     width: 100%;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
 }
 .map-panel, .scatter-panel {
     display: flex;
@@ -521,6 +521,8 @@ h1 {
 }
 
 .map-panel-title {
+    display: flex;
+    justify-content: flex-start;
     width: 100%;
     font-size: 20px;
     align-items: center;
@@ -529,7 +531,7 @@ h1 {
 .map-panel-container{
     margin-bottom:5px;
     display:flex;
-    align-items:center;
+    justify-content: flex-start;
     gap:5px;
 }
 

@@ -19,18 +19,18 @@
         <!-- ROW 1: Map and Scatter Plot Side by Side -->
         <div class="row-flex">
             <div class="map-panel chart-cell">
-                <div class="map-panel-container">
-                    <div class="map-panel-title"><h3>Seismic events by location</h3></div>
-                    <div>
-                        <label for="map-view-select">Select the region to display seismic events:</label>
-                        <button id="select-region-btn" class="control-button" type="button">Select Region</button>
-                    </div>
-                    <div>
-                        <label for="map-view-select">Select a world map view:</label>
-                        <select id="map-view-select">
-                            <option value="globe">3D Globe</option>
-                            <option value="map">2D Map</option>
-                        </select></div>
+                <div class="map-panel-container" style="width: inherit;">
+                        <h3>Seismic events by location</h3>
+                        <div>
+                            <label for="map-view-select">Select the region to display seismic events:</label>
+                            <button id="select-region-btn" class="control-button" type="button">Select Region</button>
+                        </div>
+                        <div>
+                            <label for="map-view-select">Select a world map view:</label>
+                            <select id="map-view-select">
+                                <option value="globe">3D Globe</option>
+                                <option value="map">2D Map</option>
+                            </select></div>
                     
                 </div>
                 <div id="visualization"></div>

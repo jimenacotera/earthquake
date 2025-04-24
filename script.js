@@ -321,7 +321,7 @@ function updateScatterPlot() {
     const container = d3.select('#scatter-plot-container');
     container.selectAll('*').remove();
 
-    const margin = { top: 30, right: 30, bottom: 60, left: 70 };
+    const margin = { top: 30, right: 30, bottom: 30, left: 70 };
     const containerNode = container.node();
     const fullWidth = containerNode ? containerNode.clientWidth : 400;
     const fullHeight = containerNode ? containerNode.clientHeight : 340;
