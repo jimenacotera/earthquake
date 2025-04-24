@@ -338,7 +338,17 @@ function updateScatterPlot() {
     const yMetric = document.getElementById('scatter-y-metric-select').value;
 
     // Filter data by year range and other filters
-    const data = getFilteredEarthquakeData();
+    let baseData = state.earthquakeData;
+    if (state.regionBrush && state.regionBrush.active && state.regionBrush.selection) {
+        const [[x0, y0], [x1, y1]] = state.regionBrush.selection;
+        baseData = baseData.filter(d => {
+            const coords = state.projection([d.longitude, d.latitude]);
+            if (!coords) return false;
+            const [x, y] = coords;
+            return x >= x0 && x <= x1 && y >= y0 && y <= y1;
+        });
+    }
+    const data = getFilteredEarthquakeData(baseData);
 
     // Remove points with missing x or y
     const filtered = data.filter(d =>
@@ -464,7 +474,53 @@ function updateScatterPlot() {
                 });
 
             tooltip.transition().duration(200).style('opacity', 0);
-        });
+        })
+        .on('click', function(event, d) {
+            const [lon, lat] = [d.longitude, d.latitude];
+        
+            if (state.mapView === 'globe') {
+                // Rotate globe to center on this quake
+                state.rotate = [-lon, -lat];
+                state.projection.rotate(state.rotate);
+            } else {
+                const [lon, lat] = [d.longitude, d.latitude];
+            
+                // Set rotation to align longitudes (horizontal alignment)
+                state.rotate2D.lon = -lon;
+                state.projection.rotate([state.rotate2D.lon, 0]);
+            
+                // Start with default centered translate
+                const centerX = state.width / 2;
+                const centerY = state.height / 2;
+                state.projection.translate([centerX, centerY]);
+            
+                // Optional zoom
+                state.currentZoom = Math.max(1.5, state.currentZoom);
+                state.projection.scale((state.width / (2 * Math.PI)) * state.currentZoom);
+            
+                // Now: project earthquake position *after rotation*
+                const [quakeX, quakeY] = state.projection([lon, lat]);
+            
+                // Calculate delta between quake and center
+                const dx = centerX - quakeX;
+                const dy = centerY - quakeY;
+            
+                // Shift the map so the earthquake is centered
+                state.projection.translate([centerX + dx, centerY + dy]);
+            }            
+        
+            // Optional slight zoom-in
+            state.currentZoom = Math.max(1.5, state.currentZoom);
+            const newScale = INITIAL_SCALE * state.currentZoom;
+            state.projection.scale(newScale);
+        
+            if (state.mapView === 'globe') {
+                d3.select('#globe-clip circle').attr('r', newScale);
+            }
+        
+            redrawGlobe(); // Re-render countries and graticule
+            updateEarthquakePositions(); // Reposition the dots            
+        });        
 }
 
 // Update scatter plot when filters or year range change
@@ -722,28 +778,44 @@ function stopAnimation () {
 }
 
 /* ───────────────────────── Get Filtered Earthquake Data ───────────────────────── */
-function getFilteredEarthquakeData() {
+function getFilteredEarthquakeData(base = state.earthquakeData) {
     // Returns the currently filtered data (year, hazard, quantitative filters)
+    
     const [start, end] = state.yearRange;
-    let data = state.earthquakeData.filter(d => d.year >= start && d.year <= end);
-    if (state.filters.tsunami) data = data.filter(d => d.tsunami);
-    if (state.filters.volcano) data = data.filter(d => d.volcano);
-    if (state.filters.noHazard) data = data.filter(d => !d.tsunami && !d.volcano);
+    let data = base.filter(d => d.year >= start && d.year <= end);
+
+    if (state.filters.tsunami) {
+        data = data.filter(d => d.tsunami);
+    }
+    if (state.filters.volcano) {
+        data = data.filter(d => d.volcano);
+    }
+    if (state.filters.noHazard) {
+        data = data.filter(d => !d.tsunami && !d.volcano);
+    }
+
     Q_FIELDS.forEach(key => {
         const [min, max] = state.filters[key].current;
         data = data.filter(d => d[key] >= min && d[key] <= max);
     });
+
     return data;
-}
+}   
 
 /* ───────────────────────── Earthquakes ───────────────────────── */
-function updateEarthquakes () {
-    let data;
-    if (state.regionBrush && state.regionBrush.filteredData) {
-        data = state.regionBrush.filteredData;
-    } else {
-        data = getFilteredEarthquakeData();
+function updateEarthquakes() {
+    let baseData = state.earthquakeData;
+    if (state.regionBrush?.active && state.regionBrush.selection) {
+        const [[x0, y0], [x1, y1]] = state.regionBrush.selection;
+        baseData = baseData.filter(d => {
+            const coords = state.projection([d.longitude, d.latitude]);
+            if (!coords) return false;
+            const [x, y] = coords;
+            return x >= x0 && x <= x1 && y >= y0 && y <= y1;
+        });
     }
+    const data = getFilteredEarthquakeData(baseData);
+
     state.globe.selectAll('.earthquake-container').remove();
     const g = state.globe.append('g').attr('class', 'earthquake-container');
     if (state.mapView === 'globe') {
@@ -1096,14 +1168,26 @@ function brushEnded(event) {
         const [x, y] = coords;
         return x >= x0 && x <= x1 && y >= y0 && y <= y1;
     });
+    // Save filtered data
     state.regionBrush.selection = event.selection;
     state.regionBrush.filteredData = selected;
-    setRegionBrushState('done');
     state.regionBrush.active = true;
-    state.svg.style('cursor', 'default');
-    enableMapInteractions(); // allow map interaction after selection is done
+    setRegionBrushState('done');
+
+    // Remove the brush rectangle
+    if (state.regionBrush.g) {
+        state.regionBrush.g.remove();
+        state.regionBrush.g = null;
+    }
+
+    // Restore interactions
+    state.svg.style('cursor', state.mapView === 'globe' ? 'grab' : 'default');
+    enableMapInteractions();
+
+    // Update visuals
     updateEarthquakes();
     updateAllBarCharts();
+    updateScatterPlot();
 }
 
 function disableMapInteractions() {
