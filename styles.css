@@ -383,17 +383,6 @@ h1 {
 }
 
 /* Top X bar chart container styles */
-#top-bar-chart-container {
-    background-color: #fff;
-    height: 300px;
-    border-radius: 8px;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-    padding: 20px;
-    margin-bottom: 20px;
-    display: flex;
-    justify-content: center;
-    overflow: hidden;
-}
 #top-x-input {
     margin: 0 8px;
 }
@@ -610,7 +599,6 @@ h1 {
 }
 
 #bar-chart-container,
-#top-bar-chart-container,
 #visualization,
 #scatter-plot-container {
     padding: 20px;
@@ -631,8 +619,7 @@ h1 {
     }
 }
 
-#bar-chart-container,
-#top-bar-chart-container {
+#bar-chart-container {
     width: 100%;
     box-sizing: border-box;
 }

@@ -83,9 +83,6 @@ async function init () {
     populateScatterMetricDropdowns();
     initBarChart();
     updateBarChart();
-    wireTopXInput();
-    initTopBarChart();
-    updateTopBarChart();
     initScatterPlot();
     updateEarthquakes();
     wireMapViewSelect();
@@ -962,178 +959,11 @@ function populateBarMetricDropdown() {
     select.onchange = function() {
         state.selectedBarMetric = this.value;
         d3.select('#bar-chart-container').html('');
-        d3.select('#top-bar-chart-container').html('');
         initBarChart();
         updateBarChart();
-        initTopBarChart();
-        updateTopBarChart();
     };
 }
 
-/* ───────────────────────── Top X Earthquakes Bar Chart ───────────────────────── */
-function initTopBarChart() {
-    const container = document.getElementById('top-bar-chart-container');
-    // Use same width/height as main bar chart for consistency and to avoid 0 size
-    state.topBar = {};
-    state.topBar.width  = state.bar?.width || 640;
-    state.topBar.height = state.bar?.height || 300;
-
-    state.topBar.svg = d3.select('#top-bar-chart-container').append('svg')
-        .attr('width',  state.topBar.width + BAR_MARGIN.left + BAR_MARGIN.right)
-        .attr('height', state.topBar.height + BAR_MARGIN.top + BAR_MARGIN.bottom)
-        .append('g').attr('transform', `translate(${BAR_MARGIN.left},${BAR_MARGIN.top})`);
-
-    state.topBar.x = d3.scaleBand().range([0, state.topBar.width]).padding(0.1);
-    state.topBar.y = d3.scaleLinear().range([state.topBar.height, 0]);
-
-    state.topBar.xAxis = state.topBar.svg.append('g')
-        .attr('class', 'axis x-axis')
-        .attr('transform', `translate(0,${state.topBar.height})`);
-    state.topBar.yAxis = state.topBar.svg.append('g').attr('class', 'axis y-axis');
-
-    // Set y-axis label to selected metric, but if metric is 'count', label as 'Magnitude'
-    let yLabel = BAR_METRICS.find(m => m.key === state.selectedBarMetric)?.label || 'Deaths';
-    if (state.selectedBarMetric === 'count') yLabel = 'Magnitude';
-    state.topBar.svg.selectAll('.axis-label').remove();
-    state.topBar.svg.append('text').attr('class', 'axis-label')
-        .attr('transform', 'rotate(-90)')
-        .attr('x', -state.topBar.height / 2).attr('y', -55)
-        .attr('text-anchor', 'middle').text(yLabel);
-}
-
-function updateTopBarChart() {
-    const [start, end] = state.yearRange;
-    const metricKey = state.selectedBarMetric;
-    const topX = parseInt(document.getElementById('top-x-input').value) || 10;
-    let data;
-    if (state.regionBrush && state.regionBrush.filteredData) {
-        data = state.regionBrush.filteredData.slice();
-    } else {
-        data = getFilteredEarthquakeData();
-    }
-    // Sort by selected metric
-    data = data.slice(); // copy
-    if (metricKey === 'count') {
-        // Sort by magnitude descending for 'Number of Earthquakes'
-        data.sort((a, b) => b.magnitude - a.magnitude);
-    } else {
-        data.sort((a, b) => {
-            let va = getMetricValue(a, metricKey);
-            let vb = getMetricValue(b, metricKey);
-            return vb - va;
-        });
-    }
-    data = data.slice(0, topX);
-
-    // X: label (location only, but unique for domain)
-    function getShortLoc(d) {
-        return d.location ? d.location.split(',')[0].split(' ')[0].slice(0, 15) : '';
-    }
-    // Unique key for domain
-    function getDomainKey(d, i) {
-        return `${getShortLoc(d)}-${d.year}-${d.magnitude}-${i}`;
-    }
-    // For axis label, just show the short location
-    state.topBar.x.domain(data.map(getDomainKey));
-    // Change y-axis: if metric is 'count', y is magnitude, else as before
-    if (metricKey === 'count') {
-        state.topBar.y.domain([0, d3.max(data, d => d.magnitude) || 0]);
-    } else {
-        state.topBar.y.domain([0, d3.max(data, d => getMetricValue(d, metricKey)) || 0]);
-    }
-
-    // Axes
-    state.topBar.yAxis.transition().duration(500).call(d3.axisLeft(state.topBar.y));
-
-    // Remove old bars
-    state.topBar.svg.selectAll('.top-bar').remove();
-
-    // Draw bars
-    state.topBar.svg.selectAll('.top-bar')
-        .data(data)
-        .enter().append('rect')
-        .attr('class', 'top-bar')
-        .attr('x', (d, i) => state.topBar.x(getDomainKey(d, i)))
-        .attr('y', d => metricKey === 'count' ? state.topBar.y(d.magnitude) : state.topBar.y(getMetricValue(d, metricKey)))
-        .attr('width', state.topBar.x.bandwidth())
-        .attr('height', d => metricKey === 'count' ? state.topBar.height - state.topBar.y(d.magnitude) : state.topBar.height - state.topBar.y(getMetricValue(d, metricKey)))
-        .attr('fill', '#3498db')
-        .attr('fill-opacity', 0.8)
-        .on('mouseover', function(event, d) {
-            const metricLabel = BAR_METRICS.find(m => m.key === metricKey)?.label || metricKey;
-            tooltip.html(`<strong>${d.location}</strong><br/>Year: ${d.year}<br/>Magnitude: ${d.magnitude}<br/>${metricLabel}: ${getMetricValue(d, metricKey)}`)
-                .style('left', event.pageX + 10 + 'px')
-                .style('top', event.pageY + 10 + 'px')
-                .style('opacity', 1);
-            d3.select(this).attr('fill-opacity', 1);
-
-            // Animate/enlarge and pulsate corresponding earthquake marker on the map
-            d3.selectAll('.earthquake')
-                .filter(q =>
-                    q.year === d.year &&
-                    Math.abs(q.magnitude - d.magnitude) < 0.01 &&
-                    Math.abs(q.latitude - d.latitude) < 0.01 &&
-                    Math.abs(q.longitude - d.longitude) < 0.01
-                )
-                .each(function(q) {
-                    const circle = d3.select(this).select('circle');
-                    let baseR = getRadius(q.magnitude);
-                    let growR = baseR * 2;
-                    let t = 0;
-                    // Store interval id on DOM node for cleanup
-                    if (this._pulseInterval) clearInterval(this._pulseInterval);
-                    this._pulseInterval = setInterval(() => {
-                        t += 0.15;
-                        let r = baseR + Math.abs(Math.sin(t)) * (growR - baseR);
-                        circle
-                            .attr('r', r)
-                            .attr('fill-opacity', 1)
-                            .attr('stroke', '#FFD700')
-                            .attr('stroke-width', 3);
-                    }, 30);
-                })
-                .raise();
-        })
-        .on('mouseout', function(event, d) {
-            tooltip.style('opacity', 0);
-            d3.select(this).attr('fill-opacity', 0.8);
-
-            // Revert earthquake marker animation and stop pulsating
-            d3.selectAll('.earthquake')
-                .filter(q =>
-                    q.year === d.year &&
-                    Math.abs(q.magnitude - d.magnitude) < 0.01 &&
-                    Math.abs(q.latitude - d.latitude) < 0.01 &&
-                    Math.abs(q.longitude - d.longitude) < 0.01
-                )
-                .each(function(q) {
-                    if (this._pulseInterval) {
-                        clearInterval(this._pulseInterval);
-                        this._pulseInterval = null;
-                    }
-                    d3.select(this).select('circle')
-                        .transition()
-                        .duration(200)
-                        .attr('r', getRadius(q.magnitude))
-                        .attr('fill-opacity', 0.7)
-                        .attr('stroke', '#fff')
-                        .attr('stroke-width', 0.5);
-                });
-        });
-
-    // Add x-axis labels (rotated)
-    state.topBar.svg.selectAll('.top-bar-label').remove();
-    state.topBar.svg.selectAll('.top-bar-label')
-        .data(data)
-        .enter().append('text')
-        .attr('class', 'top-bar-label')
-        .attr('x', (d, i) => state.topBar.x(getDomainKey(d, i)) + state.topBar.x.bandwidth() / 2)
-        .attr('y', state.topBar.height + 15)
-        .attr('text-anchor', 'end')
-        .attr('transform', (d, i) => `rotate(-45,${state.topBar.x(getDomainKey(d, i)) + state.topBar.x.bandwidth() / 2},${state.topBar.height + 15})`)
-        .text((d) => getShortLoc(d))
-        .style('font-size', '10px');
-}
 
 function getMetricValue(d, metricKey) {
     switch (metricKey) {
@@ -1149,23 +979,12 @@ function getMetricValue(d, metricKey) {
 }
 
 // Wire up top X input
-function wireTopXInput() {
-    const input = document.getElementById('top-x-input');
-    input.onchange = function() {
-        d3.select('#top-bar-chart-container').html('');
-        initTopBarChart();
-        updateTopBarChart();
-    };
-}
 
 /* ───────────────────────── Update All Bar Charts ───────────────────────── */
 function updateAllBarCharts() {
     d3.select('#bar-chart-container').html('');
-    d3.select('#top-bar-chart-container').html('');
     initBarChart();
     updateBarChart();
-    initTopBarChart();
-    updateTopBarChart();
     updateScatterPlotOnDataChange();
 }
 
@@ -1182,11 +1001,8 @@ window.addEventListener('resize', debounce(() => {
     redrawGlobe();
 
     d3.select('#bar-chart-container').html('');
-    d3.select('#top-bar-chart-container').html('');
     initBarChart();
     updateBarChart();
-    initTopBarChart();
-    updateTopBarChart();
 }, 150));
 
 /* ───────────────────────── Region Selection Brush ───────────────────────── */
