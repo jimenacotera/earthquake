@@ -19,28 +19,29 @@
         <!-- ROW 1: Map and Scatter Plot Side by Side -->
         <div class="row-flex">
             <div class="map-panel chart-cell">
-                <div class="map-panel-container" style="width: inherit;">
-                        <h3>Seismic events by location</h3>
-                        <div>
-                            <label for="map-view-select">Select the region to display seismic events:</label>
-                            <button id="select-region-btn" class="control-button" type="button">Select Region</button>
-                        </div>
-                        <div>
-                            <label for="map-view-select">Select a world map view:</label>
-                            <select id="map-view-select">
-                                <option value="globe">3D Globe</option>
-                                <option value="map">2D Map</option>
-                            </select></div>
-                    
+                <h3>Seismic events by location</h3>
+                <div class="map-panel-container">
+                    <div class="control-row">
+                        <label for="select-region-btn">Select the region to display seismic events:</label>
+                        <button id="select-region-btn" class="control-button" type="button">Select Region</button>
+                    </div>
+                    <div class="control-row">
+                        <label for="map-view-select">Select a world map view:</label>
+                        <select id="map-view-select" class="control-select">
+                            <option value="globe">3D Globe</option>
+                            <option value="map">2D Map</option>
+                        </select>
+                    </div>
                 </div>
                 <div id="visualization"></div>
             </div>
             <div class="scatter-panel chart-cell">
-                <div style="margin-bottom:10px; display: flex; gap: 12px; align-items: center;">
+                <h3>Scatter Plot of Earthquake Metrics</h3>
+                <div style="margin-bottom:10px;">
                     <label for="scatter-x-metric-select"><strong>X-Axis Metric:</strong></label>
-                    <select id="scatter-x-metric-select"></select>
+                    <select id="scatter-x-metric-select" class="control-select"></select>
                     <label for="scatter-y-metric-select" style="margin-left:16px;"><strong>Y-Axis Metric:</strong></label>
-                    <select id="scatter-y-metric-select"></select>
+                    <select id="scatter-y-metric-select" class="control-select"></select>
                 </div>
                 <div id="scatter-plot-container"></div>
             </div>
@@ -85,14 +86,15 @@
         </div>
 
         <!-- ROW 2: Bar Chart Full Width -->
-        <div class="row-full">
+        <div class="row-full chart-cell">
+            <h3>Earthquake Statistics Bar Chart</h3>
             <div style="margin-bottom:10px">
                 <label for="bar-metric-select"><strong>Y-Axis Metric:</strong></label>
-                <select id="bar-metric-select"></select>
+                <select id="bar-metric-select" class="control-select"></select>
             </div>
-            <div id="bar-chart-container" class="chart-cell"></div>
+            <div id="bar-chart-container"></div>
         </div>
-        <!-- Info Panel -->
+        <!-- ROW 3: Info Panel -->
         <div class="info-panel">
             <h3>User Information</h3>
             <div id="earthquake-info">

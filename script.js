@@ -13,7 +13,7 @@ const MAG_BINS = [
     { key: 'large',  label: '7.1-8.0',   color: '#FF5722' },
     { key: 'major',  label: '>8.0',      color: '#F44336' }
 ];
-const BAR_MARGIN = { top: 20, right: 60, bottom: 95, left: 80 };
+const BAR_MARGIN = { top: 8, right: 24, bottom: 50, left: 80 };
 
 const BAR_METRICS = [
     { key: 'count', label: 'Number of Earthquakes' },
@@ -318,7 +318,7 @@ function updateScatterPlot() {
     const container = d3.select('#scatter-plot-container');
     container.selectAll('*').remove();
 
-    const margin = { top: 30, right: 30, bottom: 30, left: 70 };
+    const margin = { top: 30, right: 30, bottom: 50, left: 70 };
     const containerNode = container.node();
     const fullWidth = containerNode ? containerNode.clientWidth : 400;
     const fullHeight = containerNode ? containerNode.clientHeight : 340;
@@ -828,13 +828,20 @@ function hideTooltip (event) {
 /* ───────────────────────── Bar Chart ───────────────────────── */
 function initBarChart () {
     const container = document.getElementById('bar-chart-container');
-    state.bar.width  = container.clientWidth  - BAR_MARGIN.left - BAR_MARGIN.right;
-    state.bar.height = (container.clientHeight || 300) - BAR_MARGIN.top - BAR_MARGIN.bottom;
+    // Use fallback if container size is not available
+    const fallbackWidth = WIDTH;
+    const fallbackHeight = HEIGHT;
+    const containerWidth = container.clientWidth || fallbackWidth;
+    const containerHeight = container.clientHeight || fallbackHeight;
+    state.bar.width  = containerWidth - BAR_MARGIN.left - BAR_MARGIN.right;
+    state.bar.height = containerHeight - BAR_MARGIN.top - BAR_MARGIN.bottom;
 
     state.bar.svg = d3.select('#bar-chart-container').append('svg')
-    .attr('width',  state.bar.width + BAR_MARGIN.left + BAR_MARGIN.right)
-    .attr('height', state.bar.height + BAR_MARGIN.top + BAR_MARGIN.bottom)
-    .append('g').attr('transform', `translate(${BAR_MARGIN.left},${BAR_MARGIN.top})`);
+        .attr('width', '100%')
+        .attr('height', '100%')
+        .attr('viewBox', `0 0 ${state.bar.width + BAR_MARGIN.left + BAR_MARGIN.right} ${state.bar.height + BAR_MARGIN.top + BAR_MARGIN.bottom}`)
+        .attr('preserveAspectRatio', 'none')
+        .append('g').attr('transform', `translate(${BAR_MARGIN.left},${BAR_MARGIN.top})`);
 
     state.bar.x = d3.scaleBand().range([0, state.bar.width]).padding(0.2);
     state.bar.y = d3.scaleLinear().range([state.bar.height, 0]);
